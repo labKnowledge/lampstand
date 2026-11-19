@@ -5,7 +5,9 @@ app/target/
 *.pdb
 
 # Packaged builds & installers
+app/dist/
 app/dist-mac/
+app/dist-windows/
 **/*.dmg
 **/*.app/
 **/*.pkg

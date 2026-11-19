@@ -52,7 +52,11 @@ fn main() -> eframe::Result {
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Lampstand: church live & projection")
         .with_inner_size([1600.0, 940.0])
-        .with_min_inner_size([1180.0, 720.0]);
+        .with_min_inner_size([1180.0, 720.0])
+        .with_app_id("lampstand");
+    if let Ok(icon) = eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon-256.png")) {
+        viewport = viewport.with_icon(icon);
+    }
     if shooting {
         viewport = viewport.with_active(false);
         #[cfg(windows)]

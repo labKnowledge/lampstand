@@ -1,0 +1,13 @@
+# Linux build environment for Lampstand's .deb and .rpm.
+# Ubuntu 22.04 has glibc 2.35, so the binary also runs on Debian 12, Mint 21,
+# Fedora, and anything newer. Building on a newer distro would lock those out.
+FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive \
+    RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl build-essential pkg-config libasound2-dev dpkg-dev rpm file \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable \
+    && chmod -R a+rX /usr/local/rustup /usr/local/cargo

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Lampstand
+GenericName=Church presentation and live stream
+Comment=Show songs, Bible verses and announcements on the church screen and the live stream
+Exec=lampstand
+Icon=lampstand
+Terminal=false
+Categories=AudioVideo;Video;Office;Presentation;
+Keywords=church;worship;lyrics;songs;bible;scripture;projector;projection;stream;livestream;
+StartupWMClass=lampstand

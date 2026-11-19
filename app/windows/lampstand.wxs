@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Lampstand's Windows installer (WiX 3.14), built by windows/package-msi.ps1.
+  UpgradeCode never changes: it is how a new version finds and replaces the old one.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+  <Product Id="*" Name="Lampstand" Language="1033" Version="$(var.Version)"
+           Manufacturer="Eligapris" UpgradeCode="2C4F5179-4F09-413E-AF30-C740C7A6F4EA">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64"
+             Description="Lampstand: church live and projection" Manufacturer="Eligapris" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Lampstand is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="LampstandIcon" SourceFile="$(var.Root)\windows\lampstand.ico" />
+    <Property Id="ARPPRODUCTICON" Value="LampstandIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://eligapris.com/lampstand" />
+    <Property Id="ARPHELPLINK" Value="https://eligapris.com/lampstand" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLDIR" Name="Lampstand" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder" />
+      <Directory Id="DesktopFolder" />
+    </Directory>
+
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="LampstandExe" Guid="*" Win64="yes">
+        <File Id="LampstandExeFile" Source="$(var.Exe)" Name="Lampstand.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="LicenseFigtree" Guid="*" Win64="yes">
+        <File Source="$(var.Root)\assets\fonts\OFL-Figtree.txt" KeyPath="yes" />
+      </Component>
+      <Component Id="LicensePlayfair" Guid="*" Win64="yes">
+        <File Source="$(var.Root)\assets\fonts\OFL-PlayfairDisplay.txt" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut" Guid="*" Win64="yes">
+        <Shortcut Id="StartMenuLampstand" Name="Lampstand" Description="Church live and projection"
+                  Target="[INSTALLDIR]Lampstand.exe" WorkingDirectory="INSTALLDIR" Icon="LampstandIcon" />
+        <RegistryValue Root="HKLM" Key="Software\Eligapris\Lampstand" Name="StartMenuShortcut"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="DesktopFolder">
+      <Component Id="DesktopShortcut" Guid="*" Win64="yes">
+        <Shortcut Id="DesktopLampstand" Name="Lampstand" Description="Church live and projection"
+                  Target="[INSTALLDIR]Lampstand.exe" WorkingDirectory="INSTALLDIR" Icon="LampstandIcon" />
+        <RegistryValue Root="HKLM" Key="Software\Eligapris\Lampstand" Name="DesktopShortcut"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="Main" Title="Lampstand" Level="1">
+      <ComponentRef Id="LampstandExe" />
+      <ComponentRef Id="LicenseFigtree" />
+      <ComponentRef Id="LicensePlayfair" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="DesktopShortcut" />
+    </Feature>
+
+    <!-- Open Lampstand when the install finishes (not on repair or uninstall). -->
+    <Property Id="WixShellExecTarget" Value="[#LampstandExeFile]" />
+    <CustomAction Id="LaunchLampstand" BinaryKey="WixCA" DllEntry="WixShellExec" Impersonate="yes" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="LaunchLampstand" After="InstallFinalize">NOT Installed AND NOT REMOVE AND UILevel &gt;= 3</Custom>
+    </InstallExecuteSequence>
+  </Product>
+</Wix>
