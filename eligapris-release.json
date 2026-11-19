@@ -1,0 +1,184 @@
+{
+  "$comment": "eligapris-site-release spec: eligapris.com/lampstand. Build everything with app/scripts/release.sh, or publish with the eligapris-site-release skill.",
+  "version": {
+    "file": "app/Cargo.toml",
+    "pattern": "^version = \"([^\"]+)\""
+  },
+  "artifacts": {
+    "windows": "app/dist/Lampstand-{version}-x64.msi",
+    "mac": "app/dist/Lampstand-{version}.dmg",
+    "linux-deb": "app/dist/lampstand_{version}_amd64.deb",
+    "linux-rpm": "app/dist/lampstand-{version}-1.x86_64.rpm"
+  },
+  "page": {
+    "id": "lampstand",
+    "name": "Lampstand",
+    "slug": "/lampstand",
+    "icon": "release/eligapris/icon.png",
+    "productIcon": "Flame",
+    "status": "Live",
+    "category": "platform",
+    "seo": {
+      "title": "Lampstand: Church Presentation & Live Stream Software",
+      "description": "Show songs, Bible verses and announcements on the church screen and stream the service to YouTube or Facebook with name bars and captions. For Windows, Mac and Linux."
+    },
+    "tagline": "Church presentation and live stream in one window",
+    "description": "Songs, Bible verses and announcements on the church screen, and the same service streamed to YouTube or Facebook with name bars and captions. Windows, Mac and Linux.",
+    "longDescription": "Lampstand is a desktop app for the person running the screens on Sunday. Paste lyrics and they become slides. Type a verse reference and it's on the wall, from the WEB or KJV Bible built into the app. The room and the live stream can show the same picture or different ones, with name bars, the sermon title, live captions and a ticker on the stream only. It records, streams to YouTube, Facebook, Twitch or Vimeo, and takes USB cameras, capture cards and shared screens.",
+    "keywords": [
+      "church",
+      "worship",
+      "lyrics",
+      "bible",
+      "projection",
+      "live stream",
+      "download"
+    ],
+    "featureChips": [
+      "Windows",
+      "macOS",
+      "Linux",
+      "Live streaming"
+    ],
+    "productFeatures": [
+      "Lyrics become slides at each verse and chorus",
+      "WEB and KJV Bibles built in, searchable, offline",
+      "Separate or matching pictures for the room and the stream",
+      "Name bars, titles, live captions and a ticker on the stream",
+      "Go live to YouTube, Facebook, Twitch or Vimeo, and record",
+      "Cameras, capture cards and screen sharing",
+      "Break screen with announcements and a countdown"
+    ],
+    "whyTry": {
+      "title": "One volunteer, one window, the whole service",
+      "items": [
+        {
+          "title": "Words on the wall in seconds",
+          "description": "Paste lyrics and they're slides. Type a verse reference and press Show. No slide deck to build the night before."
+        },
+        {
+          "title": "The stream looks produced",
+          "description": "Name bars, the sermon title, the verse being read and live captions go on the stream, while the room sees clean slides."
+        },
+        {
+          "title": "Streaming without a second program",
+          "description": "Go live to YouTube, Facebook, Twitch or Vimeo and record at the same time, straight from Lampstand."
+        },
+        {
+          "title": "Your computer, your choice",
+          "description": "Windows, Mac and Linux. No account, and everything except the stream works offline."
+        }
+      ]
+    },
+    "hero": {
+      "eyebrow": "Church presentation and live stream · Windows, Mac, Linux",
+      "title": "Sunday's screen and live stream, from one window.",
+      "description": "Lampstand shows songs, Bible verses and announcements on the church screen, and sends the same service to YouTube or Facebook with name bars and captions. One person can run all of it."
+    },
+    "mainShot": {
+      "src": "release/eligapris/app.png",
+      "alt": "Lampstand's main window: the Bible on the left, the church screen and live stream previews in the middle, on-air graphics on the right",
+      "caption": "Left: what to show. Middle: the room and the stream. Right: what goes on top."
+    },
+    "scenes": {
+      "eyebrow": "What people see",
+      "title": "Made for the room and the stream",
+      "description": "Clear type that reads from the back row, and a stream that looks like it had a production team.",
+      "items": [
+        {
+          "image": "release/eligapris/lyrics.png",
+          "alt": "Amazing Grace lyrics on a dark purple background on the church screen",
+          "title": "Songs",
+          "description": "Paste the lyrics once. Lampstand splits them into slides at each verse and chorus."
+        },
+        {
+          "image": "release/eligapris/verse.png",
+          "alt": "John 3:16 in large serif type with the reference underneath",
+          "title": "Scripture",
+          "description": "Type John 3:16 and press Show. The WEB and KJV Bibles are built in and work offline."
+        },
+        {
+          "image": "release/eligapris/stream.png",
+          "alt": "Live stream frame with a pastor's name bar, a Bible verse, a caption and a scrolling ticker",
+          "title": "The live stream",
+          "description": "Name bars, the sermon title, the verse being read, live captions and a news ticker, only on the stream if you want."
+        },
+        {
+          "image": "release/eligapris/break.png",
+          "alt": "Break screen with an announcement, a 'we'll be right back' bar and a countdown",
+          "title": "Breaks",
+          "description": "One button puts up announcements and a countdown while the service pauses."
+        }
+      ]
+    },
+    "features": {
+      "eyebrow": "Built for volunteers",
+      "title": "Easy enough for whoever is on duty this week",
+      "items": [
+        {
+          "icon": "Radio",
+          "title": "Go live in one click",
+          "description": "YouTube, Facebook, Twitch or Vimeo. Paste the stream key once; Lampstand remembers it every Sunday."
+        },
+        {
+          "icon": "BookOpen",
+          "title": "Bible lookup that keeps up",
+          "description": "Jump to any passage or search by words. Pick how many verses go on each slide."
+        },
+        {
+          "icon": "Music",
+          "title": "Two screens, one decision",
+          "description": "The room and the stream can show the same picture or different ones. Switch with one button."
+        },
+        {
+          "icon": "Camera",
+          "title": "Cameras and screens",
+          "description": "USB cameras, capture cards, or another computer's screen, shown full size or behind the words."
+        },
+        {
+          "icon": "Captions",
+          "title": "Captions as you speak",
+          "description": "Type a line and press Enter, or step through a prepared script. Captions clear by themselves."
+        },
+        {
+          "icon": "Timer",
+          "title": "Record while you stream",
+          "description": "Keep a copy of every service on the computer, with or without going live."
+        },
+        {
+          "icon": "Keyboard",
+          "title": "Run it from the keyboard",
+          "description": "Arrow keys or Space to step through slides, B for a black screen, Esc to clear."
+        },
+        {
+          "icon": "WifiOff",
+          "title": "No account, no internet needed",
+          "description": "Everything except the live stream works offline, and everything it needs to stream and record comes with it."
+        }
+      ]
+    },
+    "secondaryShot": {
+      "src": "release/eligapris/sources.png",
+      "alt": "Lampstand's Cameras and screens panel with a preview and a list of cameras, capture cards and screens"
+    },
+    "download": {
+      "requirements": "For Windows 10 and 11, macOS 11 or newer, and 64-bit Linux.",
+      "installSteps": {
+        "windows": "Run the installer and Lampstand opens when it's done, ready to stream and record. If a blue \"Windows protected your PC\" box appears, choose More info, then Run anyway.",
+        "mac": "Drag Lampstand to Applications and open it. The first time, the Mac says it can't check the app: click Done, then in System Settings → Privacy & Security click Open Anyway. Works on Apple chips and Intel Macs, macOS 11 or newer.",
+        "linux-deb": "For Ubuntu, Debian, Mint and Pop!_OS. Open it with Software Install, or run: sudo apt install ./lampstand_*_amd64.deb. FFmpeg is installed with it.",
+        "linux-rpm": "For Fedora and openSUSE. Open it with Software, or run: sudo dnf install ./lampstand-*.rpm. FFmpeg is installed with it."
+      },
+      "notes": [
+        {
+          "title": "Windows says \"Smart App Control blocked an app\"?",
+          "body": "Some new Windows 11 PCs have Smart App Control turned on. It only runs apps signed with a certificate Microsoft recognises, and Lampstand isn't signed yet, so on those PCs it won't open and there's no \"Run anyway\". A signed version is on the way. Until then, use another computer, or email support@eligapris.com and we'll let you know the day it's ready."
+        }
+      ]
+    },
+    "support": {
+      "title": "Setting it up for your church?",
+      "body": "Tell us about your room, cameras and stream at support@eligapris.com and we'll help you get Sunday running."
+    }
+  }
+}
