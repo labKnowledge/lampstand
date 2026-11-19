@@ -8,6 +8,7 @@ $Version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select
 $env:Path = "$env:USERPROFILE\.cargo\bin;C:\Program Files (x86)\WiX Toolset v3.14\bin;$env:Path"
 $env:CARGO_TARGET_DIR = "$env:LOCALAPPDATA\LampstandBuild\target"
 
+if (-not (Test-Path third_party\ffmpeg\windows\ffmpeg.exe)) { throw "third_party\ffmpeg\windows\ffmpeg.exe is missing: run scripts/fetch-ffmpeg.sh first" }
 Write-Host "Building Lampstand $Version for Windows..."
 cargo build --release --locked
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
@@ -20,7 +21,8 @@ $Msi = "dist\Lampstand-$Version-x64.msi"
 candle.exe -nologo -arch x64 -ext WixUtilExtension "-dVersion=$Version" "-dRoot=$Root" "-dExe=$Exe" `
   -out "$Obj\lampstand.wixobj" windows\lampstand.wxs
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
-# ICE61/ICE91 are advisory for a per-machine install with shortcuts.
-light.exe -nologo -ext WixUtilExtension -sice:ICE61 -sice:ICE91 -spdb -out $Msi "$Obj\lampstand.wixobj"
+# ICE38/43/57/61/91 assume shortcuts go to one user's profile. This install is per machine
+# (ALLUSERS=1), so the Start menu and desktop folders are the all-users ones and these don't apply.
+light.exe -nologo -ext WixUtilExtension -sice:ICE38 -sice:ICE43 -sice:ICE57 -sice:ICE61 -sice:ICE91 -spdb -out $Msi "$Obj\lampstand.wixobj"
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
 Get-Item $Msi | Select-Object Name, Length

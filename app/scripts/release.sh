@@ -37,11 +37,14 @@ KEY="${ELIGAPRIS_RELEASE_KEY:-$( [[ -r $KEY_FILE ]] && cat "$KEY_FILE" || true )
 VERSION="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
 echo "Lampstand $VERSION -> $URL"
 
+# After a version bump Cargo.lock still has the old number; the --locked builds need it current.
+cargo update --workspace --offline --quiet
 # The Mac binary carries its own copy of the version; keep it in step with Cargo.toml.
 sed -i -E '/CFBundleShortVersionString/{n;s#<string>[^<]*</string>#<string>'"$VERSION"'</string>#}' macos/Info.plist
 
 declare -A RESULT
 if [[ $SKIP_BUILD -eq 0 ]]; then
+  scripts/fetch-ffmpeg.sh >/dev/null   # bundled into the Windows and Mac installers
   if linux/package-linux.sh; then RESULT[linux]=built; else RESULT[linux]="build failed"; fi
   reachable() { ssh -o BatchMode=yes -o ConnectTimeout=6 "$1" 'exit 0' >/dev/null 2>&1; }
   for target in windows mac; do

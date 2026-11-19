@@ -11,9 +11,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 TARGET="${1:?windows or mac}"
 VERSION="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
+# Each machine gets only its own FFmpeg (scripts/fetch-ffmpeg.sh puts them in third_party/).
 case "$TARGET" in
-  windows) HOST="${LAMPSTAND_WINDOWS_SSH:-samepad-windows}" ;;
-  mac) HOST="${LAMPSTAND_MAC_SSH:-samepad-mac}" ;;
+  windows) HOST="${LAMPSTAND_WINDOWS_SSH:-samepad-windows}"; SKIP_FF=(--exclude=./third_party/ffmpeg/mac) ;;
+  mac) HOST="${LAMPSTAND_MAC_SSH:-samepad-mac}"; SKIP_FF=(--exclude=./third_party/ffmpeg/windows) ;;
   *) echo "unknown target $TARGET" >&2; exit 2 ;;
 esac
 SSH_OPTS=(-o BatchMode=yes -o ServerAliveInterval=30)
@@ -23,7 +24,7 @@ remote() { ssh "${SSH_OPTS[@]}" "$HOST" "$@"; }
 SRC="$(mktemp --suffix=.tgz)"
 trap 'rm -f "$SRC"' EXIT
 tar -czf "$SRC" --exclude=./target --exclude=./dist --exclude=./dist-mac --exclude=./dist-windows \
-  --exclude=./shots --exclude=.DS_Store .
+  --exclude=./shots --exclude=.DS_Store --exclude=./third_party/ffmpeg/.downloads "${SKIP_FF[@]}" .
 echo "Sending sources to $TARGET ($HOST, $(du -h "$SRC" | cut -f1))..."
 mkdir -p dist
 

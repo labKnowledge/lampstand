@@ -30,6 +30,13 @@
       <Component Id="LampstandExe" Guid="*" Win64="yes">
         <File Id="LampstandExeFile" Source="$(var.Exe)" Name="Lampstand.exe" KeyPath="yes" />
       </Component>
+      <!-- FFmpeg next to Lampstand.exe: streaming, recording, videos and cameras work right after install. -->
+      <Component Id="Ffmpeg" Guid="*" Win64="yes">
+        <File Id="FfmpegExe" Source="$(var.Root)\third_party\ffmpeg\windows\ffmpeg.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="FfmpegLicense" Guid="*" Win64="yes">
+        <File Source="$(var.Root)\third_party\ffmpeg\windows\FFMPEG-LICENSE.txt" KeyPath="yes" />
+      </Component>
       <Component Id="LicenseFigtree" Guid="*" Win64="yes">
         <File Source="$(var.Root)\assets\fonts\OFL-Figtree.txt" KeyPath="yes" />
       </Component>
@@ -58,6 +65,8 @@
 
     <Feature Id="Main" Title="Lampstand" Level="1">
       <ComponentRef Id="LampstandExe" />
+      <ComponentRef Id="Ffmpeg" />
+      <ComponentRef Id="FfmpegLicense" />
       <ComponentRef Id="LicenseFigtree" />
       <ComponentRef Id="LicensePlayfair" />
       <ComponentRef Id="StartMenuShortcut" />

@@ -20,6 +20,15 @@ for s in 16 32 128 256 512; do
   sips -z "$d" "$d" macos/icon_1024.png --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+# FFmpeg inside the app (Apple chips + Intel in one file), so streaming, recording,
+# videos and cameras work with nothing else to install. Lampstand finds it in Resources.
+FF=third_party/ffmpeg/mac
+[[ -x "$FF/ffmpeg-arm64" && -x "$FF/ffmpeg-x86_64" ]] || { echo "FFmpeg is missing: run scripts/fetch-ffmpeg.sh first" >&2; exit 1; }
+rm -f "$APP/Contents/Resources/ffmpeg"
+lipo -create -output "$APP/Contents/Resources/ffmpeg" "$FF/ffmpeg-arm64" "$FF/ffmpeg-x86_64"
+chmod 755 "$APP/Contents/Resources/ffmpeg"
+cp "$FF/FFMPEG-LICENSE.txt" "$APP/Contents/Resources/FFMPEG-LICENSE.txt"
+codesign --force --sign - --identifier app.lampstand.ffmpeg "$APP/Contents/Resources/ffmpeg"
 codesign --force --sign - --identifier app.lampstand.live --requirements '=designated => identifier "app.lampstand.live"' "$APP/Contents/MacOS/Lampstand"
 codesign --force --sign - --identifier app.lampstand.live --requirements '=designated => identifier "app.lampstand.live"' "$APP"
 ditto "$APP" "$STAGE/Lampstand.app"

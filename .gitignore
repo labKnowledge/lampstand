@@ -63,3 +63,6 @@ reference/*
 investigation.cany
 checks
 capture
+
+# Bundled FFmpeg (downloaded by app/scripts/fetch-ffmpeg.sh)
+app/third_party/
