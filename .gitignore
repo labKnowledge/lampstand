@@ -1,0 +1,63 @@
+# Rust / Cargo
+app/target/
+**/target/
+**/*.rs.bk
+*.pdb
+
+# Packaged builds & installers
+app/dist-mac/
+**/*.dmg
+**/*.app/
+**/*.pkg
+**/*.msi
+**/*.exe
+**/Lampstand.app/
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.code-workspace
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets.json
+
+# Logs & local runtime
+*.log
+agent-session.jsonl
+build-activity.log
+usage.json
+feed.json
+
+# Craft Anything local session state
+investigation.cany/investigation/update.lock
+investigation.cany/journal/
+inbox/build-progress.json
+pinned/play.log
+
+# Capture / scratch (keep folder via README)
+capture/*
+!capture/README.md
+
+# Optional local reference dumps
+reference/*
+!reference/.gitkeep
+investigation.cany
+checks
+capture

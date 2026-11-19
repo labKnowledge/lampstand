@@ -1,0 +1,121 @@
+pub struct Service {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub server: &'static str,
+    pub fixed_server: bool,
+    pub where_key: &'static str,
+    pub tips: &'static str,
+    pub max_kbps: u32,
+    pub color: [u8; 3],
+}
+
+pub const SERVICES: [Service; 10] = [
+    Service {
+        id: "youtube",
+        name: "YouTube",
+        server: "rtmp://a.rtmp.youtube.com/live2",
+        fixed_server: true,
+        where_key: "Open YouTube Studio, click Create, then Go live. Choose Stream, and copy the Stream key.",
+        tips: "Turn on Auto-start in the stream settings so the broadcast begins as soon as Lampstand connects. The channel must be verified and enabled for live streaming (this can take up to 24 hours the first time).",
+        max_kbps: 9000,
+        color: [230, 50, 45],
+    },
+    Service {
+        id: "facebook",
+        name: "Facebook",
+        server: "rtmps://live-api-s.facebook.com:443/rtmp/",
+        fixed_server: true,
+        where_key: "Open Facebook, choose Live video, then Streaming software. Copy the Stream key. Pick 'Use a persistent stream key' to reuse it every Sunday.",
+        tips: "Facebook only accepts secure (rtmps) connections. Keep the bitrate at 4000 to 6000 kbps.",
+        max_kbps: 6000,
+        color: [24, 119, 242],
+    },
+    Service {
+        id: "twitch",
+        name: "Twitch",
+        server: "rtmp://live.twitch.tv/app",
+        fixed_server: true,
+        where_key: "Open the Twitch Creator Dashboard, then Settings, then Stream. Copy the Primary stream key.",
+        tips: "Twitch picks the nearest server automatically from this address.",
+        max_kbps: 6000,
+        color: [145, 70, 255],
+    },
+    Service {
+        id: "vimeo",
+        name: "Vimeo",
+        server: "rtmps://rtmp-global.cloud.vimeo.com:443/live",
+        fixed_server: false,
+        where_key: "Open your Vimeo live event, choose Stream with RTMP, and copy the Stream key (and the URL if it differs).",
+        tips: "Needs a Vimeo plan that includes live streaming.",
+        max_kbps: 8000,
+        color: [26, 183, 234],
+    },
+    Service {
+        id: "kick",
+        name: "Kick",
+        server: "",
+        fixed_server: false,
+        where_key: "Open Kick, then Settings, then Stream URL & Key. Copy both the Stream URL and the Stream key.",
+        tips: "Kick gives each channel its own server address, so paste it as shown.",
+        max_kbps: 8000,
+        color: [83, 252, 24],
+    },
+    Service {
+        id: "x",
+        name: "X (Twitter)",
+        server: "",
+        fixed_server: false,
+        where_key: "Open Media Studio on X, then Producer, create a source, and copy the RTMP URL and the Stream key.",
+        tips: "The server address depends on your region, so paste it as shown.",
+        max_kbps: 9000,
+        color: [30, 30, 30],
+    },
+    Service {
+        id: "linkedin",
+        name: "LinkedIn Live",
+        server: "",
+        fixed_server: false,
+        where_key: "Create a LinkedIn Live event with 'Streaming tool', then copy the Stream URL and Stream key.",
+        tips: "Each event has its own address.",
+        max_kbps: 6000,
+        color: [10, 102, 194],
+    },
+    Service {
+        id: "instagram",
+        name: "Instagram",
+        server: "",
+        fixed_server: false,
+        where_key: "On a computer, open Instagram, choose Create, then Live. Copy the Stream URL and Stream key.",
+        tips: "Instagram is vertical-first; viewers on phones will see the middle of the picture.",
+        max_kbps: 4000,
+        color: [214, 41, 118],
+    },
+    Service {
+        id: "restream",
+        name: "Restream",
+        server: "rtmp://live.restream.io/live",
+        fixed_server: false,
+        where_key: "Open Restream, then Settings, then Streaming setup. Copy the Stream key.",
+        tips: "Useful when your upload speed can only carry one stream: Restream copies it to many platforms.",
+        max_kbps: 8000,
+        color: [80, 90, 250],
+    },
+    Service {
+        id: "custom",
+        name: "Custom (RTMP)",
+        server: "rtmp://",
+        fixed_server: false,
+        where_key: "Paste the server address and stream key from your provider (for example a church streaming platform, a website player or your own server).",
+        tips: "Any service that accepts RTMP or RTMPS works here.",
+        max_kbps: 10000,
+        color: [120, 120, 130],
+    },
+];
+
+pub fn service(id: &str) -> &'static Service {
+    SERVICES.iter().find(|s| s.id == id).unwrap_or(&SERVICES[SERVICES.len() - 1])
+}
+
+pub fn upload_needed_kbps(stream_kbps: u32, destinations: usize) -> u32 {
+    (stream_kbps + 160) * destinations.max(1) as u32 * 3 / 2
+}
