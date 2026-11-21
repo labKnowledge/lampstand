@@ -136,7 +136,7 @@ impl Shared {
             let frame = self.frames.lock().unwrap().stream.clone();
             {
                 let mut sinks = self.sinks.lock().unwrap();
-                sinks.retain(|s| s.is_active() || s.ready.load(std::sync::atomic::Ordering::SeqCst));
+                sinks.retain(|s| s.is_active());
                 for s in sinks.iter() {
                     s.push_video(&frame);
                 }
@@ -174,12 +174,12 @@ mod tests {
         let dests = vec![d("youtube"), d("facebook")];
         let canvas = sh.snapshot().canvas;
         let rec = start_sink(
-            StartSpec { ffmpeg: &ff.path, canvas, quality: Quality::Hd720, kbps: 3000, encoder: "libx264", output: record_output_args(&rec_path), label: "rec".into(), dest_names: vec![], secrets: vec![], path: Some(rec_path.clone()) },
+            StartSpec { ffmpeg: &ff.path, canvas, quality: Quality::Hd720, kbps: 3000, encoder: "libx264", output: record_output_args(&rec_path), label: "rec".into(), dest_names: vec![], secrets: vec![], path: Some(rec_path.clone()), stats_period: ff.has_stats_period() },
             &sh.audio,
         )
         .unwrap();
         let live = start_sink(
-            StartSpec { ffmpeg: &ff.path, canvas, quality: Quality::Hd720, kbps: 3000, encoder: "libx264", output: live_output_args(&dests), label: "live".into(), dest_names: vec![], secrets: vec![], path: None },
+            StartSpec { ffmpeg: &ff.path, canvas, quality: Quality::Hd720, kbps: 3000, encoder: "libx264", output: live_output_args(&dests), label: "live".into(), dest_names: vec![], secrets: vec![], path: None, stats_period: ff.has_stats_period() },
             &sh.audio,
         )
         .unwrap();
@@ -255,7 +255,7 @@ mod media_tests {
         assert!(got_frame, "no video frame decoded");
         assert!(peak > 0.05, "no audio heard");
         let finished = sh.audio.take_finished();
-        assert!(finished.contains(&"music".to_string()), "music did not report finishing: {finished:?}");
+        assert!(finished.iter().any(|(k, _)| k == "music"), "music did not report finishing: {finished:?}");
     }
 }
 

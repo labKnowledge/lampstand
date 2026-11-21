@@ -1,5 +1,27 @@
 use crate::app::{App, CenterTab};
-use crate::media::{camera_key, list_cameras, video_key, VideoFrame};
+use crate::media::{camera_key, cameras_without_driver, list_cameras, restart_usb_camera, video_key, CameraDevice, Restart, StuckCamera, VideoFrame};
+
+const CAMERA_RESCAN_SECS: f64 = 4.0;
+const MAX_CAMERA_RESTARTS: u8 = 3;
+
+pub struct CameraScan {
+    found: Vec<CameraDevice>,
+    stuck: Vec<StuckCamera>,
+    restarted: Vec<(String, Restart)>,
+}
+
+fn scan_cameras(ff: &std::path::Path, restarts: &HashMap<String, u8>) -> CameraScan {
+    let stuck = cameras_without_driver();
+    let mut restarted = Vec::new();
+    for cam in stuck.iter().filter(|c| restarts.get(&c.key()).copied().unwrap_or(0) < MAX_CAMERA_RESTARTS) {
+        restarted.push((cam.key(), restart_usb_camera(cam)));
+    }
+    if restarted.iter().any(|(_, r)| *r == Restart::Done) {
+        std::thread::sleep(std::time::Duration::from_millis(2500));
+    }
+    let stuck = if restarted.is_empty() { stuck } else { cameras_without_driver() };
+    CameraScan { found: list_cameras(ff), stuck, restarted }
+}
 use crate::model::*;
 use crate::theme::{self, *};
 use eframe::egui::{self, Color32, ColorImage, RichText, Sense, Stroke, TextureHandle, TextureOptions, Vec2};
@@ -43,17 +65,127 @@ pub fn source_name(bg: &Background) -> String {
 }
 
 impl App {
-    pub fn scan_sources(&mut self) {
-        match self.ffmpeg_path() {
-            Some(ff) => {
-                self.cameras = list_cameras(&ff);
-                self.sources_scanned = true;
-                if self.cameras.is_empty() {
-                    self.toast("No cameras or screens found. Check the cable, or allow camera and screen recording access in system settings.", true);
+    pub fn scan_sources(&mut self, manual: bool) {
+        self.camera_scan_manual |= manual;
+        if self.camera_scan.is_some() {
+            return;
+        }
+        let Some(ff) = self.ffmpeg_path() else {
+            if manual {
+                self.toast("Cameras and screen capture need FFmpeg. Open Stream setup to add it.", true);
+            }
+            return;
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        let restarts = self.camera_restarts.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(scan_cameras(&ff, &restarts));
+        });
+        self.camera_scan = Some(rx);
+        self.camera_scan_at = now();
+    }
+
+    pub fn poll_camera_scan(&mut self, ctx: &egui::Context) {
+        let Some(rx) = &self.camera_scan else { return };
+        match rx.try_recv() {
+            Ok(scan) => {
+                self.camera_scan = None;
+                for (key, outcome) in scan.restarted {
+                    match outcome {
+                        Restart::NeedsPermission => self.camera_needs_access = true,
+                        _ => *self.camera_restarts.entry(key).or_insert(0) += 1,
+                    }
+                }
+                self.stuck_cameras = scan.stuck;
+                self.apply_camera_scan(scan.found);
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint_after(std::time::Duration::from_millis(150)),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => self.camera_scan = None,
+        }
+    }
+
+    fn apply_camera_scan(&mut self, mut found: Vec<CameraDevice>) {
+        for p in &self.picked_screens {
+            if !found.iter().any(|c| c.spec == p.spec) {
+                found.push(p.clone());
+            }
+        }
+        let arrived: Vec<CameraDevice> = found.iter().filter(|c| !c.screen && !self.cameras.iter().any(|o| o.spec == c.spec)).cloned().collect();
+        let first = !self.sources_scanned;
+        let manual = std::mem::take(&mut self.camera_scan_manual);
+        self.cameras = found;
+        self.sources_scanned = true;
+        for c in &arrived {
+            self.sh.videos.restart(&camera_key(&c.spec));
+        }
+        let cams = self.cameras.iter().filter(|c| !c.screen).count();
+        if manual {
+            match cams {
+                0 if !self.stuck_cameras.is_empty() => {}
+                0 => self.toast("No cameras found. Check the cable and close other apps that use the camera. Lampstand keeps looking while this tab is open.", true),
+                1 => self.toast("Found 1 camera", false),
+                n => self.toast(format!("Found {n} cameras"), false),
+            }
+        } else if !first && !arrived.is_empty() {
+            let names: Vec<&str> = arrived.iter().map(|c| c.name.as_str()).collect();
+            self.toast(format!("Camera connected: {}", names.join(", ")), false);
+        }
+    }
+
+    pub fn grant_camera_access(&mut self) {
+        let cams = self.stuck_cameras.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(crate::media::grant_camera_access_and_restart(&cams));
+        });
+        self.camera_access_rx = Some(rx);
+    }
+
+    fn poll_camera_access(&mut self) {
+        let Some(rx) = &self.camera_access_rx else { return };
+        let Ok(result) = rx.try_recv() else { return };
+        self.camera_access_rx = None;
+        match result {
+            Ok(()) => {
+                self.camera_needs_access = false;
+                self.camera_restarts.clear();
+                self.camera_scan_at = f64::MIN;
+            }
+            Err(e) if e == "cancelled" => {}
+            Err(e) => self.toast(format!("Couldn't start the camera: {e}"), true),
+        }
+    }
+
+    fn stuck_camera_card(&mut self, ui: &mut egui::Ui) {
+        let names = self.stuck_cameras.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", ");
+        let gave_up = self.stuck_cameras.iter().all(|c| self.camera_restarts.get(&c.key()).copied().unwrap_or(0) >= MAX_CAMERA_RESTARTS);
+        if !self.camera_needs_access && !gave_up {
+            hint(ui, &format!("Starting {names}…"));
+            return;
+        }
+        egui::Frame::new().fill(egui::Color32::from_rgb(58, 46, 26)).corner_radius(8).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            if self.camera_needs_access {
+                ui.label(RichText::new(format!("{names} is plugged in but didn't start")).family(semi_family()).color(GOLD));
+                ui.label(RichText::new("Lampstand can start it now and restart cameras by itself from then on. Your computer asks for your password once.").size(12.5));
+                let busy = self.camera_access_rx.is_some();
+                let label = if busy { "Starting…" } else { "Start camera" };
+                if ui.add_enabled(!busy, egui::Button::new(RichText::new(label).family(bold_family()).color(INK)).fill(GOLD).min_size(Vec2::new(0.0, 30.0))).clicked() {
+                    self.grant_camera_access();
+                }
+            } else {
+                ui.label(RichText::new(format!("{names} isn't answering")).family(semi_family()).color(GOLD));
+                ui.label(RichText::new("Lampstand restarted it three times and it still didn't start. It may need another USB port, or a powered hub if it's on a long cable.").size(12.5));
+                if small_button(ui, "Try again").clicked() {
+                    self.camera_restarts.clear();
+                    self.camera_scan_at = f64::MIN;
                 }
             }
-            None => self.toast("Cameras and screen capture need FFmpeg. Open Stream setup to add it.", true),
-        }
+        });
+    }
+
+    pub fn camera_scan_due(&self) -> bool {
+        self.camera_scan.is_none() && self.ff.is_some() && self.shot_path.is_none() && now() - self.camera_scan_at > CAMERA_RESCAN_SECS
     }
 
     pub fn update_previews(&mut self, ctx: &egui::Context) {
@@ -195,9 +327,11 @@ impl App {
     }
 
     pub fn sources_panel(&mut self, ui: &mut egui::Ui) {
-        if !self.sources_scanned && self.ff.is_some() && self.shot_path.is_none() {
-            self.scan_sources();
+        self.poll_camera_access();
+        if self.camera_scan_due() {
+            self.scan_sources(false);
         }
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(CAMERA_RESCAN_SECS));
         let avail = ui.available_width();
         let left_w = (avail * 0.56).max(360.0);
         let right_w = avail - left_w - 12.0;
@@ -374,8 +508,12 @@ impl App {
         ui.horizontal(|ui| {
             heading(ui, "Sources");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if small_button(ui, "Find cameras & screens").clicked() {
-                    self.scan_sources();
+                let looking = self.camera_scan.is_some() && self.camera_scan_manual;
+                if ui.add_enabled(!looking, egui::Button::new(RichText::new(if looking { "Looking…" } else { "Find cameras & screens" }).size(13.0)).min_size(Vec2::new(0.0, 26.0)))
+                    .on_hover_text("Lampstand also checks by itself every few seconds while this tab is open, so a camera you plug in shows up on its own")
+                    .clicked()
+                {
+                    self.scan_sources(true);
                 }
             });
         });
@@ -384,7 +522,7 @@ impl App {
         let th = tw * 9.0 / 16.0;
         let mut pick: Option<Background> = None;
         for (screens, title, empty) in [
-            (false, "Cameras & capture cards", "No cameras found yet. Plug one in and press Find."),
+            (false, "Cameras & capture cards", "No cameras found yet. Plug one in and it shows up here by itself."),
             (true, "Screen capture", "Shows a computer screen, for example slides from a laptop or a website."),
         ] {
             ui.add_space(4.0);
@@ -403,7 +541,12 @@ impl App {
             }
             let list: Vec<_> = self.cameras.iter().filter(|c| c.screen == screens).cloned().collect();
             if list.is_empty() {
-                hint(ui, empty);
+                let first_scan = !screens && !self.sources_scanned && self.camera_scan.is_some();
+                if !screens && !self.stuck_cameras.is_empty() {
+                    self.stuck_camera_card(ui);
+                    continue;
+                }
+                hint(ui, if first_scan { "Looking for cameras…" } else { empty });
                 continue;
             }
             for row in list.chunks(cols) {
@@ -553,13 +696,17 @@ impl App {
             .open(&mut open)
             .collapsible(false)
             .default_width(520.0)
+            .min_width(420.0)
+            .max_width(760.0)
             .default_height(520.0)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.add(egui::TextEdit::singleline(&mut self.picker_filter).hint_text("Search by app or window name").desired_width(ui.available_width() - 80.0));
-                    if small_button(ui, "Refresh").clicked() {
-                        refresh = true;
-                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if small_button(ui, "Refresh").clicked() {
+                            refresh = true;
+                        }
+                        ui.add(egui::TextEdit::singleline(&mut self.picker_filter).hint_text("Search by app or window name").desired_width(f32::INFINITY));
+                    });
                 });
                 if !self.picker_note.is_empty() {
                     hint(ui, &self.picker_note);
@@ -597,7 +744,10 @@ impl App {
             self.open_picker();
         }
         if let Some(t) = chosen {
-            let dev = crate::media::CameraDevice { spec: t.spec.clone(), name: t.name.clone(), screen: true };
+            let dev = CameraDevice { spec: t.spec.clone(), name: t.name.clone(), screen: true };
+            if !self.picked_screens.iter().any(|c| c.spec == dev.spec) {
+                self.picked_screens.push(dev.clone());
+            }
             if !self.cameras.iter().any(|c| c.spec == dev.spec) {
                 self.cameras.push(dev);
             }

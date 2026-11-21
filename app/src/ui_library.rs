@@ -20,12 +20,12 @@ impl App {
         let tr = self.bibles.get(&self.settings.translation);
         let abbrev = tr.abbrev.clone();
         let verses: Vec<_> = tr.chapter(book, chapter).to_vec();
+        self.bible_book = book;
+        self.bible_chapter = chapter;
         if verses.is_empty() {
             self.toast(format!("{} {} isn't in this Bible", book_name(book), chapter), true);
             return;
         }
-        self.bible_book = book;
-        self.bible_chapter = chapter;
         let vps = self.settings.verses_per_slide.clamp(1, 4);
         let mut slides = Vec::new();
         let mut focus = None;
@@ -219,13 +219,13 @@ impl App {
         heading(ui, "Songs & slides");
         ui.horizontal_wrapped(|ui| {
             if small_button(ui, "+ Song").clicked() {
-                self.editing = Some((None, Song { title: "New song".into(), author: String::new(), lyrics: "[Verse 1]\nFirst line\nSecond line\n\n[Chorus]\nChorus line".into(), kind: SlideKind::Lyrics }));
+                self.start_editing(None, Song { title: "New song".into(), author: String::new(), lyrics: "[Verse 1]\nFirst line\nSecond line\n\n[Chorus]\nChorus line".into(), kind: SlideKind::Lyrics });
             }
             if small_button(ui, "+ Announcement").clicked() {
-                self.editing = Some((None, Song { title: "New announcement".into(), author: String::new(), lyrics: "[Event]\nEvent name\nDay, time and place".into(), kind: SlideKind::Announcement }));
+                self.start_editing(None, Song { title: "New announcement".into(), author: String::new(), lyrics: "[Event]\nEvent name\nDay, time and place".into(), kind: SlideKind::Announcement });
             }
             if small_button(ui, "+ Titles").clicked() {
-                self.editing = Some((None, Song { title: "Sermon".into(), author: String::new(), lyrics: "[Title]\nSermon title\nSpeaker name".into(), kind: SlideKind::Title }));
+                self.start_editing(None, Song { title: "Sermon".into(), author: String::new(), lyrics: "[Title]\nSermon title\nSpeaker name".into(), kind: SlideKind::Title });
             }
         });
         ui.add(egui::TextEdit::singleline(&mut self.song_filter).hint_text("Filter by title or words").desired_width(f32::INFINITY));
@@ -279,13 +279,13 @@ impl App {
             self.set_strip(s.title.clone(), s.slides(), Some(0));
         }
         if let Some(i) = edit {
-            self.editing = Some((Some(i), self.lib.songs[i].clone()));
+            self.start_editing(Some(i), self.lib.songs[i].clone());
         }
         if let Some(i) = self.selected_song.filter(|i| *i < self.lib.songs.len()) {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 if small_button(ui, "Edit").clicked() {
-                    self.editing = Some((Some(i), self.lib.songs[i].clone()));
+                    self.start_editing(Some(i), self.lib.songs[i].clone());
                 }
                 if small_button(ui, "Duplicate").clicked() {
                     let mut c = self.lib.songs[i].clone();
@@ -296,6 +296,14 @@ impl App {
         }
         ui.add_space(6.0);
         hint(ui, "Tip: separate slides with a blank line. Start a slide with [Chorus] to name it.");
+    }
+
+    fn start_editing(&mut self, idx: Option<usize>, song: Song) {
+        if self.editing.is_some() {
+            self.toast("Save or close the slides you're editing first", true);
+            return;
+        }
+        self.editing = Some((idx, song));
     }
 
     pub fn song_editor(&mut self, ctx: &egui::Context) {

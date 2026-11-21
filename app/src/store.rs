@@ -4,9 +4,18 @@ use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize)]
 pub struct Saved {
+    #[serde(default)]
     pub settings: Settings,
+    #[serde(default)]
     pub library: Library,
+    #[serde(default)]
     pub state: LiveState,
+}
+
+pub enum Loaded {
+    Nothing,
+    Saved(Box<Saved>),
+    Unreadable(PathBuf),
 }
 
 pub fn app_dir() -> PathBuf {
@@ -22,9 +31,21 @@ fn file() -> PathBuf {
     app_dir().join("lampstand.json")
 }
 
-pub fn load() -> Option<Saved> {
-    let text = std::fs::read_to_string(file()).ok()?;
-    let mut saved: Saved = serde_json::from_str(&text).ok()?;
+fn set_aside_unreadable() -> PathBuf {
+    let stamp = chrono::Local::now().format("%Y-%m-%d %H-%M-%S");
+    let kept = app_dir().join(format!("lampstand unreadable {stamp}.json"));
+    if std::fs::rename(file(), &kept).is_err() {
+        let _ = std::fs::copy(file(), &kept);
+    }
+    kept
+}
+
+pub fn load() -> Loaded {
+    let Ok(text) = std::fs::read_to_string(file()) else { return Loaded::Nothing };
+    let mut saved: Saved = match serde_json::from_str(&text) {
+        Ok(s) => s,
+        Err(_) => return Loaded::Unreadable(set_aside_unreadable()),
+    };
     let st = &mut saved.state;
     st.is_live = false;
     for s in [&mut st.lower_third.show, &mut st.title.show, &mut st.caption.show, &mut st.ticker.show, &mut st.logo.show, &mut st.brk.show] {
@@ -43,7 +64,7 @@ pub fn load() -> Option<Saved> {
         o.prev_slide = None;
         o.prev_background = None;
     }
-    Some(saved)
+    Loaded::Saved(Box::new(saved))
 }
 
 pub fn save(saved: &Saved) {

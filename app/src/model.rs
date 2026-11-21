@@ -516,6 +516,7 @@ pub struct BreakScene {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(default)]
 pub struct LiveState {
     pub outputs: [OutputLive; 2],
     pub mirror: bool,
@@ -777,6 +778,7 @@ impl Quality {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(default)]
 pub struct Settings {
     pub church_name: String,
     pub destinations: Vec<Destination>,
@@ -820,6 +822,7 @@ impl Default for Settings {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
+#[serde(default)]
 pub struct Library {
     pub songs: Vec<Song>,
     pub people: Vec<Person>,

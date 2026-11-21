@@ -28,6 +28,7 @@ docker run --rm --user "$(id -u):$(id -g)" \
     STAGE=$(mktemp -d) && chmod 755 "$STAGE"
     install -Dm755 "$BIN" "$STAGE/usr/bin/lampstand"
     install -Dm644 linux/lampstand.desktop "$STAGE/usr/share/applications/lampstand.desktop"
+    install -Dm644 linux/70-lampstand-cameras.rules "$STAGE/usr/lib/udev/rules.d/70-lampstand-cameras.rules"
     for s in 16 24 32 48 64 128 256 512; do
       install -Dm644 "linux/icons/$s.png" "$STAGE/usr/share/icons/hicolor/${s}x${s}/apps/lampstand.png"
     done
@@ -60,6 +61,7 @@ EOF
 set -e
 command -v update-desktop-database >/dev/null && update-desktop-database -q /usr/share/applications || true
 command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t /usr/share/icons/hicolor || true
+command -v udevadm >/dev/null && udevadm control --reload-rules && udevadm trigger --subsystem-match=usb --action=change || true
 EOF
     chmod 755 "$DEB/DEBIAN/postinst"
     dpkg-deb --root-owner-group --build "$DEB" "dist/lampstand_${VERSION}_amd64.deb" >/dev/null
@@ -91,10 +93,12 @@ cp -a $STAGE/. %{buildroot}/
 /usr/share/applications/lampstand.desktop
 /usr/share/icons/hicolor/*/apps/lampstand.png
 /usr/share/doc/lampstand
+/usr/lib/udev/rules.d/70-lampstand-cameras.rules
 
 %post
 update-desktop-database -q /usr/share/applications >/dev/null 2>&1 || :
 gtk-update-icon-cache -q -t /usr/share/icons/hicolor >/dev/null 2>&1 || :
+udevadm control --reload-rules >/dev/null 2>&1 && udevadm trigger --subsystem-match=usb --action=change >/dev/null 2>&1 || :
 EOF
     rpmbuild -bb --quiet --define "_topdir $TOP" --define "_rpmdir $TOP/RPMS" \
       --define "_build_id_links none" --target x86_64 "$TOP/SPECS/lampstand.spec" >/dev/null

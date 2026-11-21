@@ -38,6 +38,54 @@ fn mac_screen_index(screen: &str, label: &str) -> String {
     screen.to_string()
 }
 
+const MAC_CAMERA_MODES: &[&[&str]] = &[
+    &["-framerate", "30", "-video_size", "1280x720", "-pixel_format", "uyvy422"],
+    &["-framerate", "30", "-pixel_format", "uyvy422"],
+    &["-pixel_format", "uyvy422"],
+    &["-framerate", "25", "-pixel_format", "uyvy422"],
+    &["-framerate", "60", "-pixel_format", "uyvy422"],
+    &["-framerate", "59.94", "-pixel_format", "uyvy422"],
+    &["-framerate", "50", "-pixel_format", "uyvy422"],
+    &["-framerate", "24", "-pixel_format", "uyvy422"],
+    &["-pixel_format", "nv12"],
+];
+
+const WINDOWS_CAMERA_MODES: &[&[&str]] = &[
+    &["-video_size", "1280x720", "-framerate", "30"],
+    &["-vcodec", "mjpeg", "-video_size", "1280x720", "-framerate", "30"],
+    &["-video_size", "1920x1080"],
+    &[],
+];
+
+const LINUX_CAMERA_MODES: &[&[&str]] = &[
+    &["-input_format", "mjpeg", "-framerate", "30", "-video_size", "1280x720"],
+    &["-framerate", "30", "-video_size", "1280x720"],
+    &[],
+];
+
+fn camera_modes() -> &'static [&'static [&'static str]] {
+    if cfg!(target_os = "macos") {
+        MAC_CAMERA_MODES
+    } else if cfg!(windows) {
+        WINDOWS_CAMERA_MODES
+    } else {
+        LINUX_CAMERA_MODES
+    }
+}
+
+fn is_screen_capture(spec: &str) -> bool {
+    spec.starts_with("screen:") || spec.starts_with("window:")
+}
+
+pub fn input_variants(spec: &str) -> Vec<(Vec<String>, Option<String>)> {
+    let attempts = match (is_screen_capture(spec), cfg!(target_os = "macos")) {
+        (true, true) => 3,
+        (true, false) => 1,
+        (false, _) => camera_modes().len(),
+    };
+    (0..attempts).map(|i| input_args(spec, i)).collect()
+}
+
 pub fn input_args(spec: &str, attempt: usize) -> (Vec<String>, Option<String>) {
     let id = spec.split_once('|').map(|(a, _)| a).unwrap_or(spec).to_string();
     let label = spec.split_once('|').map(|(_, b)| b).unwrap_or("").to_string();
@@ -87,28 +135,21 @@ pub fn input_args(spec: &str, attempt: usize) -> (Vec<String>, Option<String>) {
         }
         return (a, None);
     }
+    let mode = camera_modes().get(attempt).copied().unwrap_or(&[]);
     if cfg!(target_os = "macos") {
         a.extend(["-f", "avfoundation"].map(String::from));
-        match attempt {
-            0 => a.extend(["-framerate", "30", "-video_size", "1280x720", "-pixel_format", "uyvy422"].map(String::from)),
-            1 => a.extend(["-framerate", "30", "-pixel_format", "uyvy422"].map(String::from)),
-            _ => a.extend(["-pixel_format", "nv12"].map(String::from)),
-        }
+        a.extend(mode.iter().map(|x| x.to_string()));
         let cam = crate::media::mac_device_index(&label).unwrap_or(id);
         a.push("-i".into());
         a.push(format!("{cam}:none"));
     } else if cfg!(windows) {
-        a.extend(["-f", "dshow", "-rtbufsize", "100M"].map(String::from));
-        if attempt == 0 {
-            a.extend(["-video_size", "1280x720", "-framerate", "30"].map(String::from));
-        }
+        a.extend(["-f", "dshow", "-rtbufsize", "256M"].map(String::from));
+        a.extend(mode.iter().map(|x| x.to_string()));
         a.push("-i".into());
         a.push(format!("video={id}"));
     } else {
         a.extend(["-f", "v4l2"].map(String::from));
-        if attempt == 0 {
-            a.extend(["-framerate", "30", "-video_size", "1280x720"].map(String::from));
-        }
+        a.extend(mode.iter().map(|x| x.to_string()));
         a.push("-i".into());
         a.push(id);
     }
@@ -208,11 +249,13 @@ fn mac_targets(ffmpeg: &Path) -> (Vec<CaptureTarget>, String) {
     (out, "If a window moves after you pick it, pick it again. Window titles appear once Screen Recording access is allowed.".into())
 }
 
+const WINDOWS_SCREENS_PS: &str = "Add-Type -Name Dpi -Namespace Lampstand -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool SetProcessDPIAware();'; [Lampstand.Dpi]::SetProcessDPIAware() | Out-Null; Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Screen]::AllScreens | ForEach-Object { \"$($_.Bounds.X),$($_.Bounds.Y),$($_.Bounds.Width),$($_.Bounds.Height),$($_.Primary)\" }";
+
 fn windows_targets() -> (Vec<CaptureTarget>, String) {
     let mut out = vec![CaptureTarget { spec: "screen:desktop|All displays".into(), name: "All displays".into(), detail: "Every monitor together".into(), window: false }];
     let mons = run_text(
         "powershell",
-        &["-NoProfile", "-Command", "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Screen]::AllScreens | ForEach-Object { \"$($_.Bounds.X),$($_.Bounds.Y),$($_.Bounds.Width),$($_.Bounds.Height),$($_.Primary)\" }"],
+        &["-NoProfile", "-Command", WINDOWS_SCREENS_PS],
     );
     for (i, line) in mons.lines().enumerate() {
         let f: Vec<&str> = line.trim().split(',').collect();
@@ -299,7 +342,7 @@ pub fn list_displays() -> Vec<DisplayInfo> {
     } else if cfg!(windows) {
         let text = run_text(
             "powershell",
-            &["-NoProfile", "-Command", "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Screen]::AllScreens | ForEach-Object { \"$($_.Bounds.X),$($_.Bounds.Y),$($_.Bounds.Width),$($_.Bounds.Height),$($_.Primary)\" }"],
+            &["-NoProfile", "-Command", WINDOWS_SCREENS_PS],
         );
         for (i, line) in text.lines().enumerate() {
             let f: Vec<f32> = line.trim().split(',').take(4).filter_map(|v| v.trim().parse().ok()).collect();

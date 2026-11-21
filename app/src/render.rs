@@ -60,13 +60,16 @@ enum Fit {
     Logo,
 }
 
+const MAX_PREPS: usize = 24;
+
 pub struct Renderer {
     pub text: TextEngine,
     w: u32,
     h: u32,
     vignette: Vec<u8>,
     bases: HashMap<(Rgb, Rgb), Arc<Vec<u8>>>,
-    preps: HashMap<(String, Fit), Option<Arc<Prep>>>,
+    preps: HashMap<(String, Fit), (Option<Arc<Prep>>, u64)>,
+    prep_tick: u64,
     pub wanted: HashMap<String, bool>,
     pub animating: bool,
     slide_floor: f32,
@@ -88,6 +91,7 @@ impl Renderer {
             vignette: vec![],
             bases: HashMap::new(),
             preps: HashMap::new(),
+            prep_tick: 0,
             wanted: HashMap::new(),
             animating: false,
             slide_floor: 0.0,
@@ -125,13 +129,23 @@ impl Renderer {
 
     fn prep(&mut self, images: &ImageStore, path: &str, fit: Fit) -> Option<Arc<Prep>> {
         let key = (path.to_string(), fit);
-        if let Some(p) = self.preps.get(&key) {
+        self.prep_tick += 1;
+        let tick = self.prep_tick;
+        if let Some((p, used)) = self.preps.get_mut(&key) {
+            *used = tick;
             return p.clone();
+        }
+        if self.preps.len() >= MAX_PREPS {
+            let mut by_age: Vec<((String, Fit), u64)> = self.preps.iter().map(|(k, (_, u))| (k.clone(), *u)).collect();
+            by_age.sort_by_key(|(_, u)| *u);
+            for (k, _) in by_age.into_iter().take(MAX_PREPS / 2) {
+                self.preps.remove(&k);
+            }
         }
         let img = match images.get(path) {
             Some(Ok(img)) => img,
             Some(Err(())) => {
-                self.preps.insert(key, None);
+                self.preps.insert(key, (None, tick));
                 return None;
             }
             None => {
@@ -161,7 +175,7 @@ impl Renderer {
             }
         };
         let p = Some(Arc::new(prep));
-        self.preps.insert(key, p.clone());
+        self.preps.insert(key, (p.clone(), tick));
         p
     }
 

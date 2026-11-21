@@ -297,7 +297,7 @@ impl BibleStore {
                     if p.extension().map(|e| e == "txt").unwrap_or(false) {
                         if let Ok(text) = std::fs::read_to_string(&p) {
                             let stem = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-                            let abbrev = abbrev_from_name(&stem);
+                            let abbrev = unique_abbrev(&translations, &abbrev_from_name(&stem));
                             if let Some(t) = Translation::from_vpl(&abbrev, &stem, &text) {
                                 translations.push(t);
                             }
@@ -314,6 +314,14 @@ impl BibleStore {
     }
 }
 
+pub fn unique_abbrev(taken: &[Translation], base: &str) -> String {
+    let free = |a: &str| !taken.iter().any(|t| t.abbrev == a);
+    if free(base) {
+        return base.to_string();
+    }
+    (2..).map(|n| format!("{base}{n}")).find(|a| free(a)).unwrap_or_else(|| base.to_string())
+}
+
 pub fn abbrev_from_name(stem: &str) -> String {
     let s = stem.trim_end_matches("_vpl").trim_start_matches("eng-");
     let s: String = s.chars().filter(|c| c.is_alphanumeric()).take(8).collect();
@@ -323,6 +331,13 @@ pub fn abbrev_from_name(stem: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keeps_imported_bible_names_apart() {
+        let store = BibleStore::load(None);
+        assert_eq!(unique_abbrev(&store.translations, "KINYARWA"), "KINYARWA");
+        assert_eq!(unique_abbrev(&store.translations, "WEB"), "WEB2");
+    }
 
     #[test]
     fn parses_common_references() {

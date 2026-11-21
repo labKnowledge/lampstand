@@ -1,11 +1,13 @@
 use crate::app::{list_devices, App, SetupTab};
-use crate::bible::{abbrev_from_name, Translation};
+use crate::bible::{abbrev_from_name, unique_abbrev, Translation};
 use crate::model::*;
 use crate::services::{service, upload_needed_kbps, SERVICES};
 use crate::store;
 use crate::stream::check_destination;
 use crate::theme::{self, *};
 use eframe::egui::{self, Color32, RichText, Vec2};
+
+const SETUP_WIDTH: f32 = 640.0;
 
 impl App {
     pub fn setup_window(&mut self, ctx: &egui::Context) {
@@ -16,7 +18,9 @@ impl App {
         egui::Window::new(RichText::new("Stream setup").family(heading_family()).size(20.0))
             .open(&mut open)
             .collapsible(false)
-            .default_width(640.0)
+            .default_width(SETUP_WIDTH)
+            .min_width(SETUP_WIDTH - 80.0)
+            .max_width(SETUP_WIDTH + 200.0)
             .default_height(620.0)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -96,17 +100,18 @@ impl App {
                             d.server.push(' ');
                         }
                     } else {
-                        let edit = egui::TextEdit::singleline(&mut d.server).desired_width(ui.available_width()).hint_text("rtmp://… or rtmps://…");
-                        ui.add(edit);
+                        ui.add(egui::TextEdit::singleline(&mut d.server).desired_width(f32::INFINITY).hint_text("rtmp://… or rtmps://…"));
                     }
                 });
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Stream key").size(12.5).color(MUTED));
                     let reveal = self.reveal_key == Some(i);
-                    ui.add(egui::TextEdit::singleline(&mut d.key).password(!reveal).desired_width(ui.available_width() - 60.0).hint_text("paste the key here"));
-                    if small_button(ui, if reveal { "Hide" } else { "Show" }).clicked() {
-                        self.reveal_key = if reveal { None } else { Some(i) };
-                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if small_button(ui, if reveal { "Hide" } else { "Show" }).clicked() {
+                            self.reveal_key = if reveal { None } else { Some(i) };
+                        }
+                        ui.add(egui::TextEdit::singleline(&mut d.key).password(!reveal).desired_width(f32::INFINITY).hint_text("paste the key here"));
+                    });
                 });
                 ui.label(RichText::new(svc.where_key).size(12.5).color(TEXT));
                 ui.label(RichText::new(svc.tips).size(12.0).color(MUTED));
@@ -192,14 +197,12 @@ impl App {
         });
         ui.add_space(8.0);
         subheading(ui, "Recording");
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(&self.settings.record_dir).size(12.5).color(MUTED));
-            if small_button(ui, "Change folder…").clicked() {
-                if let Some(d) = rfd::FileDialog::new().pick_folder() {
-                    self.settings.record_dir = d.to_string_lossy().to_string();
-                }
+        ui.label(RichText::new(&self.settings.record_dir).size(12.5).color(MUTED));
+        if small_button(ui, "Change folder…").clicked() {
+            if let Some(d) = rfd::FileDialog::new().pick_folder() {
+                self.settings.record_dir = d.to_string_lossy().to_string();
             }
-        });
+        }
         ui.checkbox(&mut self.settings.record_with_live, "Record automatically whenever we go live");
         ui.add_space(8.0);
         subheading(ui, "FFmpeg (the video engine)");
@@ -300,13 +303,13 @@ impl App {
                 match std::fs::read_to_string(&f) {
                     Ok(text) => {
                         let stem = f.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "bible".into());
-                        let abbrev = abbrev_from_name(&stem);
+                        self.bibles.translations.retain(|x| x.name != stem);
+                        let abbrev = unique_abbrev(&self.bibles.translations, &abbrev_from_name(&stem));
                         match Translation::from_vpl(&abbrev, &stem, &text) {
                             Some(t) => {
                                 let _ = std::fs::create_dir_all(store::bibles_dir());
                                 let _ = std::fs::write(store::bibles_dir().join(format!("{stem}.txt")), &text);
                                 self.import_msg = format!("Added {} with {} verses", t.abbrev, t.verses.len());
-                                self.bibles.translations.retain(|x| x.abbrev != t.abbrev);
                                 self.bibles.translations.push(t);
                             }
                             None => self.import_msg = "That file doesn't look like a verse-per-line Bible".into(),

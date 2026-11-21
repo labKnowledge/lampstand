@@ -54,18 +54,40 @@ pub struct Sink {
     pub dropped_video: Arc<AtomicU64>,
     pub dropped_audio: Arc<AtomicU64>,
     video_tx: Mutex<Option<SyncSender<Arc<Vec<u8>>>>>,
+    video_clock: Mutex<VideoClock>,
     child: Arc<Mutex<Option<Child>>>,
 }
+
+#[derive(Default)]
+struct VideoClock {
+    started: Option<f64>,
+    sent: u64,
+}
+
+const MAX_OWED_FRAMES: u64 = FPS as u64 * 10;
 
 impl Sink {
     pub fn push_video(&self, frame: &Arc<Vec<u8>>) {
         if !self.ready.load(Ordering::SeqCst) || self.paused.load(Ordering::SeqCst) {
             return;
         }
-        if let Some(tx) = self.video_tx.lock().unwrap().as_ref() {
-            if tx.try_send(frame.clone()).is_err() {
-                self.dropped_video.fetch_add(1, Ordering::Relaxed);
-            }
+        let t = now();
+        let paused_total = self.stats.lock().unwrap().paused_total;
+        let tx = self.video_tx.lock().unwrap();
+        let Some(tx) = tx.as_ref() else { return };
+        let mut clock = self.video_clock.lock().unwrap();
+        let started = *clock.started.get_or_insert(t);
+        let due = ((t - started - paused_total).max(0.0) * FPS as f64) as u64 + 1;
+        let mut owed = due.saturating_sub(clock.sent);
+        if owed > MAX_OWED_FRAMES {
+            let lost = owed - MAX_OWED_FRAMES;
+            self.dropped_video.fetch_add(lost, Ordering::Relaxed);
+            clock.sent += lost;
+            owed = MAX_OWED_FRAMES;
+        }
+        while owed > 0 && tx.try_send(frame.clone()).is_ok() {
+            clock.sent += 1;
+            owed -= 1;
         }
     }
 
@@ -204,6 +226,7 @@ pub struct StartSpec<'a> {
     pub dest_names: Vec<String>,
     pub secrets: Vec<String>,
     pub path: Option<PathBuf>,
+    pub stats_period: bool,
 }
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -212,7 +235,10 @@ pub fn start_sink(spec: StartSpec, audio: &AudioEngine) -> Result<Arc<Sink>, Str
     let port = TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()).map_err(|e| e.to_string())?.port();
     let (cw, ch) = spec.canvas;
     let mut cmd = ffmpeg_command(spec.ffmpeg);
-    cmd.args(["-hide_banner", "-loglevel", "warning", "-nostats", "-progress", "pipe:1", "-stats_period", "1"]);
+    cmd.args(["-hide_banner", "-loglevel", "warning", "-nostats", "-progress", "pipe:1"]);
+    if spec.stats_period {
+        cmd.args(["-stats_period", "1"]);
+    }
     cmd.args(["-thread_queue_size", "1024", "-probesize", "32", "-analyzeduration", "0", "-f", "f32le", "-ar", "48000", "-ac", "2"]);
     cmd.arg("-i").arg(format!("tcp://127.0.0.1:{port}?listen=1&listen_timeout=15000"));
     cmd.args(["-thread_queue_size", "64", "-probesize", "32", "-analyzeduration", "0", "-f", "rawvideo", "-pix_fmt", "rgba"]);
@@ -244,14 +270,17 @@ pub fn start_sink(spec: StartSpec, audio: &AudioEngine) -> Result<Arc<Sink>, Str
     let (atx, arx) = mpsc::sync_channel::<Arc<Vec<f32>>>(400);
     let child = Arc::new(Mutex::new(Some(child)));
     let dropped_audio = Arc::new(AtomicU64::new(0));
-    audio.add_sink(AudioSink { id, tx: atx, ready: ready.clone(), paused: paused.clone(), dropped: dropped_audio.clone() });
+    audio.add_sink(AudioSink { id, tx: atx, ready: ready.clone(), paused: paused.clone(), dropped: dropped_audio.clone(), owed: 0 });
 
     {
         let ready = ready.clone();
         let stats = stats.clone();
         std::thread::spawn(move || {
             let mut conn = None;
-            for _ in 0..150 {
+            for _ in 0..320 {
+                if !matches!(stats.lock().unwrap().state, SinkState::Starting) {
+                    return;
+                }
                 if let Ok(s) = TcpStream::connect(("127.0.0.1", port)) {
                     conn = Some(s);
                     break;
@@ -259,7 +288,10 @@ pub fn start_sink(spec: StartSpec, audio: &AudioEngine) -> Result<Arc<Sink>, Str
                 std::thread::sleep(Duration::from_millis(50));
             }
             let Some(mut conn) = conn else {
-                stats.lock().unwrap().state = SinkState::Failed("The encoder did not open its sound input".into());
+                let mut s = stats.lock().unwrap();
+                if s.state == SinkState::Starting {
+                    s.state = SinkState::Failed("The encoder did not open its sound input".into());
+                }
                 return;
             };
             let _ = conn.set_nodelay(true);
@@ -377,6 +409,7 @@ pub fn start_sink(spec: StartSpec, audio: &AudioEngine) -> Result<Arc<Sink>, Str
         dropped_video: Arc::new(AtomicU64::new(0)),
         dropped_audio,
         video_tx: Mutex::new(Some(vtx)),
+        video_clock: Mutex::new(VideoClock::default()),
         child,
     }))
 }

@@ -64,6 +64,31 @@ pub struct AudioSink {
     pub ready: Arc<AtomicBool>,
     pub paused: Arc<AtomicBool>,
     pub dropped: Arc<std::sync::atomic::AtomicU64>,
+    pub owed: u64,
+}
+
+const MAX_OWED_BLOCKS: u64 = 10 * RATE as u64 / BLOCK as u64;
+
+impl AudioSink {
+    fn send(&mut self, block: &Arc<Vec<f32>>) {
+        if !self.ready.load(Ordering::SeqCst) || self.paused.load(Ordering::SeqCst) {
+            return;
+        }
+        if self.owed > 0 {
+            let silence = Arc::new(vec![0f32; block.len()]);
+            while self.owed > 0 && self.tx.try_send(silence.clone()).is_ok() {
+                self.owed -= 1;
+            }
+        }
+        if self.owed == 0 && self.tx.try_send(block.clone()).is_ok() {
+            return;
+        }
+        if self.owed < MAX_OWED_BLOCKS {
+            self.owed += 1;
+        } else {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+        }
+    }
 }
 
 enum DeviceCmd {
@@ -76,7 +101,7 @@ pub struct AudioEngine {
     pub controls: Mutex<Controls>,
     pub meters: Mutex<Meters>,
     sources: Mutex<HashMap<String, Source>>,
-    finished: Mutex<Vec<String>>,
+    finished: Mutex<Vec<(String, f64)>>,
     mic_buf: Arc<Mutex<VecDeque<f32>>>,
     monitor_buf: Arc<Mutex<VecDeque<f32>>>,
     pub sinks: Mutex<Vec<AudioSink>>,
@@ -222,7 +247,7 @@ impl AudioEngine {
         self.sources.lock().unwrap().get(key).map(|s| s.played as f64 / RATE as f64)
     }
 
-    pub fn take_finished(&self) -> Vec<String> {
+    pub fn take_finished(&self) -> Vec<(String, f64)> {
         std::mem::take(&mut *self.finished.lock().unwrap())
     }
 
@@ -312,7 +337,7 @@ impl AudioEngine {
                                 let _ = c.wait();
                             }
                             if !s.remove_when_silent {
-                                self.finished.lock().unwrap().push(k);
+                                self.finished.lock().unwrap().push((k, s.played as f64 / RATE as f64));
                             }
                         }
                     }
@@ -331,10 +356,8 @@ impl AudioEngine {
                     }
                 }
                 let block = Arc::new(prog.clone());
-                for s in self.sinks.lock().unwrap().iter() {
-                    if s.ready.load(Ordering::SeqCst) && !s.paused.load(Ordering::SeqCst) && s.tx.try_send(block.clone()).is_err() {
-                        s.dropped.fetch_add(1, Ordering::Relaxed);
-                    }
+                for s in self.sinks.lock().unwrap().iter_mut() {
+                    s.send(&block);
                 }
                 peaks.mic = (peaks.mic * 0.93).max(pk.mic);
                 peaks.music = (peaks.music * 0.93).max(pk.music);

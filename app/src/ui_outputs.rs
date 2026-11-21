@@ -85,7 +85,8 @@ impl App {
 
     pub fn display_rect(&self, i: usize) -> Option<egui::Rect> {
         let r = self.display_list.lock().unwrap().get(i)?.rect?;
-        Some(egui::Rect::from_min_size(egui::pos2(r[0], r[1]), Vec2::new(r[2], r[3])))
+        let scale = if cfg!(target_os = "macos") { 1.0 } else { self.pixels_per_point.max(0.5) };
+        Some(egui::Rect::from_min_size(egui::pos2(r[0], r[1]) / scale, Vec2::new(r[2], r[3]) / scale))
     }
 
     fn app_display(&self) -> Option<usize> {
@@ -247,9 +248,10 @@ impl App {
                 WinMode::Full(d) => match self.display_rect(d) {
                     Some(r) => builder
                         .with_decorations(false)
-                        .with_position(r.min)
+                        .with_position(r.min + Vec2::splat(1.0))
                         .with_inner_size(r.size())
                         .with_resizable(false)
+                        .with_fullscreen(!cfg!(target_os = "macos"))
                         .with_window_level(egui::WindowLevel::AlwaysOnTop),
                     None => builder.with_monitor(d).with_fullscreen(true),
                 },

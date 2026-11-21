@@ -1855,7 +1855,7 @@ dependencies = [
 
 [[package]]
 name = "lampstand"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "ab_glyph",
  "chrono",
@@ -1864,6 +1864,7 @@ dependencies = [
  "eframe",
  "flate2",
  "image",
+ "libc",
  "rfd",
  "serde",
  "serde_json",

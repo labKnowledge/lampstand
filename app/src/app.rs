@@ -112,6 +112,17 @@ pub struct App {
     pub center_tab: CenterTab,
     pub show_library: bool,
     pub sources_scanned: bool,
+    pub camera_scan: Option<Receiver<crate::ui_sources::CameraScan>>,
+    pub stuck_cameras: Vec<crate::media::StuckCamera>,
+    pub camera_restarts: HashMap<String, u8>,
+    pub camera_needs_access: bool,
+    pub camera_access_rx: Option<Receiver<Result<(), String>>>,
+    pub camera_scan_at: f64,
+    pub camera_scan_manual: bool,
+    pub picked_screens: Vec<CameraDevice>,
+    pub fresh: bool,
+    pub pixels_per_point: f32,
+    pub music_failures: usize,
     pub preview_src: Option<Background>,
     pub source_tex: HashMap<String, crate::ui_sources::SourceTex>,
     pub show_picker: bool,
@@ -123,10 +134,15 @@ pub struct App {
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, opts: LaunchOptions) -> Self {
         theme::install(&cc.egui_ctx);
-        let saved = if opts.fresh || opts.screenshot.is_some() { None } else { store::load() };
+        let saved = if opts.fresh || opts.screenshot.is_some() { store::Loaded::Nothing } else { store::load() };
+        let mut set_aside = None;
         let (settings, lib, mut state) = match saved {
-            Some(s) => (s.settings, s.library, s.state),
-            None => (Settings::default(), Library::sample(), LiveState::default()),
+            store::Loaded::Saved(s) => (s.settings, s.library, s.state),
+            store::Loaded::Unreadable(kept) => {
+                set_aside = Some(kept);
+                (Settings::default(), Library::sample(), LiveState::default())
+            }
+            store::Loaded::Nothing => (Settings::default(), Library::sample(), LiveState::default()),
         };
         state.canvas = settings.quality.size();
         state.logo.text = if state.logo.text.is_empty() { settings.church_name.clone() } else { state.logo.text.clone() };
@@ -197,6 +213,17 @@ impl App {
             center_tab: CenterTab::Slides,
             show_library: true,
             sources_scanned: false,
+            camera_scan: None,
+            stuck_cameras: vec![],
+            camera_restarts: HashMap::new(),
+            camera_needs_access: false,
+            camera_access_rx: None,
+            camera_scan_at: f64::MIN,
+            camera_scan_manual: false,
+            picked_screens: vec![],
+            fresh: opts.fresh,
+            pixels_per_point: cc.egui_ctx.pixels_per_point(),
+            music_failures: 0,
             preview_src: None,
             source_tex: HashMap::new(),
             show_picker: false,
@@ -204,6 +231,9 @@ impl App {
             picker_note: String::new(),
             picker_filter: String::new(),
         };
+        if let Some(kept) = set_aside {
+            app.toast(format!("Lampstand couldn't read its saved songs and settings, so it started fresh. The old file is kept at {}", kept.display()), true);
+        }
         app.load_chapter(42, 3, Some(16), None, false);
         if app.shot_path.is_none() {
             app.refresh_displays();
@@ -238,7 +268,7 @@ impl App {
     }
 
     pub fn persist(&mut self) {
-        if self.shot_path.is_some() {
+        if self.shot_path.is_some() || self.fresh {
             return;
         }
         let saved = store::Saved { settings: self.settings.clone(), library: self.lib.clone(), state: self.sh.snapshot() };
@@ -249,6 +279,12 @@ impl App {
     pub fn send(&mut self, slide: Option<Slide>) {
         let target = self.send_target;
         let tr = self.transition;
+        if let Some(Slide { media: Some(MediaRef::Video { path, sound, looping: false }), .. }) = &slide {
+            let st = self.sh.snapshot();
+            if st.outputs.iter().any(|o| o.slide == slide) {
+                self.sh.videos.restart(&crate::media::video_key(path, false, *sound));
+            }
+        }
         self.sh.edit(|s| s.send_slide(target, slide, tr));
     }
 
@@ -327,6 +363,7 @@ impl App {
             dest_names: dests.iter().map(|d| d.name.clone()).collect(),
             secrets: dests.iter().map(|d| d.key.trim().to_string()).collect(),
             path: None,
+            stats_period: self.ff.as_ref().map(|f| f.has_stats_period()).unwrap_or(true),
         };
         match stream::start_sink(spec, &self.sh.audio) {
             Ok(s) => {
@@ -379,6 +416,7 @@ impl App {
             dest_names: vec![],
             secrets: vec![],
             path: Some(path.clone()),
+            stats_period: self.ff.as_ref().map(|f| f.has_stats_period()).unwrap_or(true),
         };
         match stream::start_sink(spec, &self.sh.audio) {
             Ok(s) => {
@@ -479,29 +517,35 @@ impl App {
                 }
             }
         }
-        for k in self.sh.audio.take_finished() {
-            if k == "music" {
-                if let Some(i) = self.music_idx {
-                    self.play_music(i + 1);
-                }
+        for (k, secs) in self.sh.audio.take_finished() {
+            if k != "music" {
+                continue;
+            }
+            self.music_failures = if secs < 1.0 { self.music_failures + 1 } else { 0 };
+            if self.music_failures >= self.lib.playlist.len().max(1) {
+                self.music_failures = 0;
+                self.toast("Couldn't play the break music. Check the music files are still on this computer.", true);
+            } else if let Some(i) = self.music_idx {
+                self.play_music(i + 1);
             }
         }
+        self.poll_camera_scan(ctx);
         while let Ok((i, r)) = self.check_rx.try_recv() {
             self.checks.insert(i, Some(r));
         }
-        if let Some(l) = &self.live {
-            let state = l.stats.lock().unwrap().state.clone();
-            if let SinkState::Failed(msg) = state {
-                self.live = None;
-                self.sh.edit(|s| s.is_live = false);
-                self.toast(format!("The live stream stopped: {msg}"), true);
+        if let Some(msg) = self.live.as_ref().and_then(|l| sink_end_reason(l)) {
+            if let Some(l) = self.live.take() {
+                l.stop(&self.sh.audio);
             }
+            self.sh.edit(|s| s.is_live = false);
+            self.toast(format!("The live stream stopped: {msg}"), true);
         }
-        if let Some(r) = &self.rec {
-            let state = r.stats.lock().unwrap().state.clone();
-            if let SinkState::Failed(msg) = state {
-                self.rec = None;
-                self.toast(format!("Recording stopped: {msg}"), true);
+        if let Some(msg) = self.rec.as_ref().and_then(|r| sink_end_reason(r)) {
+            if let Some(r) = self.rec.take() {
+                r.stop(&self.sh.audio);
+                if let Some(p) = &r.path {
+                    self.toast(format!("Recording stopped: {msg}. What was recorded is saved in {}", p.display()), true);
+                }
             }
         }
         let t = now();
@@ -510,7 +554,10 @@ impl App {
             self.persist();
         }
         let typing = ctx.memory(|m| m.focused().is_some());
-        if !typing && self.editing.is_none() {
+        if !typing && self.close_top_dialog_on_escape(ctx) {
+            return;
+        }
+        if !typing && self.editing.is_none() && !self.confirm_end {
             let (next, prev, black, clear) = ctx.input(|i| {
                 (
                     i.key_pressed(Key::ArrowRight) || i.key_pressed(Key::ArrowDown) || i.key_pressed(Key::Space) || i.key_pressed(Key::PageDown),
@@ -536,6 +583,22 @@ impl App {
                 self.send(None);
             }
         }
+    }
+
+    fn close_top_dialog_on_escape(&mut self, ctx: &egui::Context) -> bool {
+        let open = self.confirm_end || self.show_picker || self.show_setup;
+        if !open || !ctx.input(|i| i.key_pressed(Key::Escape)) {
+            return false;
+        }
+        if self.confirm_end {
+            self.confirm_end = false;
+        } else if self.show_picker {
+            self.show_picker = false;
+        } else {
+            self.show_setup = false;
+            self.persist();
+        }
+        true
     }
 
     pub fn toggle_black(&mut self, only: Option<OutputId>) {
@@ -919,7 +982,7 @@ impl App {
     fn dialogs(&mut self, ctx: &egui::Context) {
         if self.confirm_end {
             let mut keep = true;
-            egui::Modal::new(egui::Id::unique("confirm_end")).show(ctx, |ui| {
+            let modal = egui::Modal::new(egui::Id::unique("confirm_end")).show(ctx, |ui| {
                 ui.set_width(360.0);
                 heading(ui, "End the live stream?");
                 hint(ui, "Viewers on every platform will see the stream end.");
@@ -934,7 +997,10 @@ impl App {
                     }
                 });
             });
-            self.confirm_end = keep;
+            if modal.backdrop_response.clicked() {
+                keep = false;
+            }
+            self.confirm_end = keep && self.confirm_end;
         }
         if !self.toasts.is_empty() {
             egui::Area::new(egui::Id::unique("toasts")).anchor(egui::Align2::RIGHT_BOTTOM, Vec2::new(-16.0, -40.0)).show(ctx, |ui| {
@@ -987,6 +1053,7 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.pixels_per_point = ctx.pixels_per_point();
         self.poll(&ctx);
         self.update_previews(&ctx);
         if let Some(r) = ctx.input(|i| i.viewport().outer_rect) {
@@ -1026,6 +1093,14 @@ impl eframe::App for App {
         }
         self.sh.videos.stop_all();
         std::thread::sleep(std::time::Duration::from_millis(600));
+    }
+}
+
+fn sink_end_reason(sink: &Sink) -> Option<String> {
+    match sink.stats.lock().unwrap().state.clone() {
+        SinkState::Failed(msg) => Some(msg),
+        SinkState::Ended => Some("the encoder closed".into()),
+        _ => None,
     }
 }
 
