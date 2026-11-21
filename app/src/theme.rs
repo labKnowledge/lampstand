@@ -112,16 +112,23 @@ pub fn chip(ui: &mut egui::Ui, on: bool, text: &str) -> egui::Response {
     ui.add(egui::Button::new(RichText::new(text).family(semi_family()).size(12.5).color(fg)).fill(fill).corner_radius(14).min_size(Vec2::new(0.0, 24.0)))
 }
 
-pub fn meter(ui: &mut egui::Ui, level: f32, width: f32) {
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 8.0), egui::Sense::hover());
-    let p = ui.painter();
+pub fn level_db(level: f32) -> f32 {
+    if level > 0.0001 { 20.0 * level.log10() } else { -60.0 }
+}
+
+pub fn paint_meter(p: &egui::Painter, rect: egui::Rect, level: f32, dim: bool) {
     p.rect_filled(rect, 4, Color32::from_rgb(10, 11, 15));
-    let db = if level > 0.0001 { 20.0 * level.log10() } else { -60.0 };
+    let db = level_db(level);
     let frac = ((db + 60.0) / 60.0).clamp(0.0, 1.0);
     let mut r = rect;
     r.set_width(rect.width() * frac);
-    let c = if db > -3.0 { RED } else if db > -12.0 { GOLD } else { GREEN };
+    let c = if dim { Color32::from_rgb(90, 94, 108) } else if db > -3.0 { RED } else if db > -12.0 { GOLD } else { GREEN };
     p.rect_filled(r, 4, c);
+}
+
+pub fn meter(ui: &mut egui::Ui, level: f32, width: f32) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 8.0), egui::Sense::hover());
+    paint_meter(ui.painter(), rect, level, false);
 }
 
 pub fn status_dot(ui: &mut egui::Ui, c: Color32) {
@@ -136,4 +143,33 @@ pub fn rgb(c: [u8; 3]) -> Color32 {
 pub fn fmt_time(secs: f64) -> String {
     let s = secs.max(0.0) as u64;
     if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, (s / 60) % 60, s % 60) } else { format!("{:02}:{:02}", s / 60, s % 60) }
+}
+
+pub fn section_head(ui: &mut egui::Ui, open: bool, title: &str, dot: Option<Color32>, summary: &str, actions: impl FnOnce(&mut egui::Ui)) -> bool {
+    let mut toggled = false;
+    ui.horizontal(|ui| {
+        let reserve = 96.0;
+        let left = ui
+            .vertical(|ui| {
+                ui.set_max_width((ui.available_width() - reserve).max(80.0));
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(if open { "▾" } else { "▸" }).size(13.0).color(MUTED));
+                    if let Some(c) = dot {
+                        status_dot(ui, c);
+                    }
+                    ui.label(RichText::new(title).family(heading_family()).size(16.0));
+                });
+                if !open && !summary.is_empty() {
+                    ui.add(egui::Label::new(RichText::new(summary).size(12.0).color(MUTED)).truncate());
+                }
+            })
+            .response
+            .interact(egui::Sense::click());
+        if left.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        toggled = left.on_hover_text(if open { "Click to close" } else { "Click to open" }).clicked();
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), actions);
+    });
+    toggled
 }

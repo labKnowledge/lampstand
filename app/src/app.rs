@@ -1,4 +1,4 @@
-use crate::audio::{device_names, SrcKind};
+use crate::audio::SrcKind;
 use crate::bible::BibleStore;
 use crate::engine::Shared;
 use crate::media::{locate_ffmpeg, CameraDevice, FfmpegInfo};
@@ -27,7 +27,7 @@ pub enum CenterTab {
     Sources,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RightTab {
     Graphics,
     Sound,
@@ -108,6 +108,8 @@ pub struct App {
     pub mic_devices: Vec<String>,
     pub out_devices: Vec<String>,
     pub mic_open: bool,
+    pub audio_devices_rx: Option<Receiver<(Vec<String>, Vec<String>)>>,
+    pub top_right_width: f32,
     pub import_msg: String,
     pub center_tab: CenterTab,
     pub show_library: bool,
@@ -123,6 +125,7 @@ pub struct App {
     pub fresh: bool,
     pub pixels_per_point: f32,
     pub music_failures: usize,
+    pub open_section: HashMap<RightTab, &'static str>,
     pub preview_src: Option<Background>,
     pub source_tex: HashMap<String, crate::ui_sources::SourceTex>,
     pub show_picker: bool,
@@ -209,6 +212,8 @@ impl App {
             mic_devices: vec![],
             out_devices: vec![],
             mic_open: false,
+            audio_devices_rx: None,
+            top_right_width: 750.0,
             import_msg: String::new(),
             center_tab: CenterTab::Slides,
             show_library: true,
@@ -224,6 +229,7 @@ impl App {
             fresh: opts.fresh,
             pixels_per_point: cc.egui_ctx.pixels_per_point(),
             music_failures: 0,
+            open_section: HashMap::from([(RightTab::Graphics, "Lower third"), (RightTab::Sound, "Microphone"), (RightTab::Look, "Text")]),
             preview_src: None,
             source_tex: HashMap::new(),
             show_picker: false,
@@ -237,6 +243,8 @@ impl App {
         app.load_chapter(42, 3, Some(16), None, false);
         if app.shot_path.is_none() {
             app.refresh_displays();
+            app.start_listening();
+            app.refresh_audio_devices();
         }
         match opts.projector.as_deref() {
             Some("window") => app.out_win[0] = Some(crate::ui_outputs::WinMode::Window),
@@ -530,6 +538,7 @@ impl App {
             }
         }
         self.poll_camera_scan(ctx);
+        self.poll_audio_devices();
         while let Ok((i, r)) = self.check_rx.try_recv() {
             self.checks.insert(i, Some(r));
         }
@@ -620,6 +629,7 @@ impl App {
 
     fn top_bar(&mut self, ui: &mut egui::Ui) {
         let t = now();
+        let narrow = ui.available_width() < NARROW_TOP_BAR;
         ui.horizontal_centered(|ui| {
             ui.add_space(4.0);
             let (r, _) = ui.allocate_exact_size(Vec2::new(26.0, 30.0), Sense::hover());
@@ -650,6 +660,7 @@ impl App {
                 });
             });
             ui.add_space(6.0);
+            if !narrow {
             ui.vertical(|ui| {
                 ui.add_space(4.0);
                 subheading(ui, "Transition");
@@ -660,14 +671,26 @@ impl App {
                     }
                 });
             });
+            }
+            ui.add_space(6.0);
+            ui.separator();
+            ui.add_space(6.0);
+            let room = ui.available_width() - self.top_right_width - 12.0;
+            if room > 120.0 {
+                self.sound_strip(ui, room < 235.0);
+            }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(6.0);
                 if theme::small_button(ui, "Stream setup").clicked() {
                     self.show_setup = true;
                 }
-                let lib_label = if self.show_library { "Hide library" } else { "Show library" };
-                if theme::small_button(ui, lib_label).on_hover_text("Hide the Bible and library column to give the monitors more room").clicked() {
+                let lib_toggle = if narrow {
+                    ui.add(egui::Button::new(RichText::new("Library").size(13.0)).selected(self.show_library).min_size(Vec2::new(0.0, 26.0)))
+                } else {
+                    theme::small_button(ui, if self.show_library { "Hide library" } else { "Show library" })
+                };
+                if lib_toggle.on_hover_text("Show or hide the Bible and library column to give the monitors more room").clicked() {
                     self.show_library = !self.show_library;
                 }
                 ui.add_space(4.0);
@@ -678,14 +701,14 @@ impl App {
                             SinkState::Starting => "CONNECTING…".to_string(),
                             _ => format!("END LIVE  {}", fmt_time(st.elapsed(t))),
                         };
-                        if big_button(ui, &label, RED, Color32::WHITE, Vec2::new(150.0, 38.0)).clicked() {
+                        if big_button(ui, &label, RED, Color32::WHITE, Vec2::new(if narrow { 0.0 } else { 150.0 }, 38.0)).clicked() {
                             self.confirm_end = true;
                         }
                     }
                     None => {
                         let n = self.ready_destinations().len();
                         let label = if n > 1 { format!("GO LIVE ({n})") } else { "GO LIVE".to_string() };
-                        if big_button(ui, &label, Color32::from_rgb(196, 46, 52), Color32::WHITE, Vec2::new(128.0, 38.0))
+                        if big_button(ui, &label, Color32::from_rgb(196, 46, 52), Color32::WHITE, Vec2::new(if narrow { 0.0 } else { 128.0 }, 38.0))
                             .on_hover_text("Start streaming to every destination that is switched on")
                             .clicked()
                         {
@@ -709,7 +732,7 @@ impl App {
                         ui.label(RichText::new(format!("● REC {}", fmt_time(st.elapsed(t)))).family(bold_family()).color(c));
                     }
                     None => {
-                        if big_button(ui, "● RECORD", CARD_HI, TEXT, Vec2::new(98.0, 38.0)).on_hover_text("Record the stream picture and sound to a video file").clicked() {
+                        if big_button(ui, if narrow { "● REC" } else { "● RECORD" }, CARD_HI, TEXT, Vec2::new(0.0, 38.0)).on_hover_text("Record the stream picture and sound to a video file").clicked() {
                             self.start_recording();
                         }
                     }
@@ -725,15 +748,22 @@ impl App {
                     if big_button(ui, &label, GOLD, INK, Vec2::new(150.0, 38.0)).clicked() {
                         self.end_break();
                     }
-                } else if big_button(ui, "☕ START BREAK", CARD_HI, GOLD, Vec2::new(130.0, 38.0))
+                } else if big_button(ui, if narrow { "☕ BREAK" } else { "☕ START BREAK" }, CARD_HI, GOLD, Vec2::new(0.0, 38.0))
                     .on_hover_text("Show the break screen with ads and a countdown, and play break music")
                     .clicked()
                 {
                     self.start_break();
                 }
                 ui.add_space(4.0);
-                let pl = if self.out_win[0].is_some() { "Close projector" } else { "Open projector" };
-                if big_button(ui, pl, CARD_HI, TEXT, Vec2::new(120.0, 38.0))
+                let pl = match (self.out_win[0].is_some(), narrow) {
+                    (true, false) => "Close projector",
+                    (false, false) => "Open projector",
+                    (true, true) => "Close proj.",
+                    (false, true) => "Projector",
+                };
+                let projector = big_button(ui, pl, CARD_HI, TEXT, Vec2::new(0.0, 38.0));
+                self.top_right_width = ui.min_rect().width();
+                if projector
                     .on_hover_text("Show the church screen full screen on the projector or TV. Right-click a preview for more choices.")
                     .clicked()
                 {
@@ -1104,7 +1134,8 @@ fn sink_end_reason(sink: &Sink) -> Option<String> {
     }
 }
 
+const NARROW_TOP_BAR: f32 = 1440.0;
+
 pub fn list_devices(app: &mut App) {
-    app.mic_devices = device_names(true);
-    app.out_devices = device_names(false);
+    app.refresh_audio_devices();
 }

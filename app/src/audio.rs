@@ -28,11 +28,27 @@ pub struct Controls {
     pub master: f32,
     pub monitor_on: bool,
     pub break_mute_mic: bool,
+    pub music_stream: bool,
+    pub media_stream: bool,
+    pub music_room: bool,
+    pub media_room: bool,
+    pub room_gain: f32,
+}
+
+impl Controls {
+    pub fn computer_on_stream(&self) -> bool {
+        self.music_stream || self.media_stream
+    }
+
+    pub fn set_computer_on_stream(&mut self, on: bool) {
+        self.music_stream = on;
+        self.media_stream = on;
+    }
 }
 
 impl Default for Controls {
     fn default() -> Self {
-        Controls { mic_on: true, mic_gain: 1.0, music_gain: 0.7, media_gain: 0.9, master: 1.0, monitor_on: true, break_mute_mic: false }
+        Controls { mic_on: true, mic_gain: 1.0, music_gain: 0.7, media_gain: 0.9, master: 1.0, monitor_on: true, break_mute_mic: false, music_stream: true, media_stream: true, music_room: true, media_room: true, room_gain: 1.0 }
     }
 }
 
@@ -42,6 +58,7 @@ pub struct Meters {
     pub music: f32,
     pub media: f32,
     pub program: f32,
+    pub room: f32,
 }
 
 struct Source {
@@ -303,9 +320,9 @@ impl AudioEngine {
                                 Err(mpsc::TryRecvError::Disconnected) => s.reader_done = true,
                             }
                         }
-                        let kg = match s.kind {
-                            SrcKind::Music => ctl.music_gain,
-                            SrcKind::Media => ctl.media_gain,
+                        let (kg, to_stream, to_room) = match s.kind {
+                            SrcKind::Music => (ctl.music_gain, ctl.music_stream, ctl.music_room),
+                            SrcKind::Media => (ctl.media_gain, ctl.media_stream, ctl.media_room),
                         };
                         let have = s.buf.len().min(BLOCK * 2);
                         for i in 0..have {
@@ -317,8 +334,12 @@ impl AudioEngine {
                                 }
                             }
                             let v = s.buf.pop_front().unwrap_or(0.0) * s.gain * kg;
-                            prog[i] += v;
-                            mon[i] += v;
+                            if to_stream {
+                                prog[i] += v;
+                            }
+                            if to_room {
+                                mon[i] += v;
+                            }
                             match s.kind {
                                 SrcKind::Music => pk.music = pk.music.max(v.abs()),
                                 SrcKind::Media => pk.media = pk.media.max(v.abs()),
@@ -348,7 +369,11 @@ impl AudioEngine {
                 }
                 if ctl.monitor_on {
                     let mut m = self.monitor_buf.lock().unwrap();
-                    m.extend(mon.iter().map(|v| soft_clip(*v)));
+                    for v in mon.iter() {
+                        let out = soft_clip(*v * ctl.room_gain);
+                        pk.room = pk.room.max(out.abs());
+                        m.push_back(out);
+                    }
                     let cap = RATE as usize / 2;
                     if m.len() > cap {
                         let extra = m.len() - cap / 2;
@@ -363,6 +388,7 @@ impl AudioEngine {
                 peaks.music = (peaks.music * 0.93).max(pk.music);
                 peaks.media = (peaks.media * 0.93).max(pk.media);
                 peaks.program = (peaks.program * 0.93).max(pk.program);
+                peaks.room = (peaks.room * 0.93).max(pk.room);
             }
             *self.meters.lock().unwrap() = peaks;
         }

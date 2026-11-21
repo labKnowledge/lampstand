@@ -18,23 +18,38 @@ fn show_button(ui: &mut egui::Ui, visible: bool) -> bool {
     ui.add(egui::Button::new(RichText::new(label).family(bold_family()).size(12.5).color(fg)).fill(fill).min_size(Vec2::new(64.0, 26.0)).corner_radius(6)).clicked()
 }
 
-fn block_header(ui: &mut egui::Ui, title: &str, visible: bool, place: &mut Where) -> bool {
-    let mut toggled = false;
-    ui.horizontal(|ui| {
-        status_dot(ui, if visible { GREEN } else { Color32::from_rgb(70, 74, 88) });
-        ui.label(RichText::new(title).family(heading_family()).size(16.0));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            toggled = show_button(ui, visible);
-        });
-    });
+fn graphic_head(ui: &mut egui::Ui, open: bool, title: &str, visible: bool, summary: &str, opened: &mut bool) -> bool {
+    let mut shown = false;
+    let dot = if visible { GREEN } else { Color32::from_rgb(70, 74, 88) };
+    *opened = section_head(ui, open, title, Some(dot), summary, |ui| shown = show_button(ui, visible));
+    shown
+}
+
+fn place_row(ui: &mut egui::Ui, place: &mut Where) {
     ui.horizontal(|ui| {
         ui.label(RichText::new("Show on").size(12.0).color(MUTED));
         where_chips(ui, place);
     });
-    toggled
+}
+
+fn short(text: &str, max: usize) -> String {
+    let line = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+    if line.chars().count() > max { format!("{}…", line.chars().take(max).collect::<String>()) } else { line.to_string() }
 }
 
 impl App {
+    pub fn section_open(&self, tab: RightTab, name: &str) -> bool {
+        self.open_section.get(&tab).is_some_and(|n| *n == name)
+    }
+
+    pub fn toggle_section(&mut self, tab: RightTab, name: &'static str) {
+        if self.section_open(tab, name) {
+            self.open_section.remove(&tab);
+        } else {
+            self.open_section.insert(tab, name);
+        }
+    }
+
     pub fn right_panel(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             for (tab, label) in [(RightTab::Graphics, "On-air graphics"), (RightTab::Sound, "Sound"), (RightTab::Look, "Look & effects")] {
@@ -57,9 +72,20 @@ impl App {
         let mut lt = st.lower_third.clone();
         let mut lt_toggle = false;
         let mut save_person = false;
+        let mut opened = None;
+        let open = self.section_open(RightTab::Graphics, "Lower third");
         theme::card_frame().show(ui, |ui| {
             ui.set_width(ui.available_width());
-            lt_toggle = block_header(ui, "Lower third", lt.show.visible, &mut lt.place);
+            let summary = if lt.title.is_empty() { lt.name.clone() } else { format!("{} · {}", lt.name, lt.title) };
+            let mut o = false;
+            lt_toggle = graphic_head(ui, open, "Lower third", lt.show.visible, &summary, &mut o);
+            if o {
+                opened = Some("Lower third");
+            }
+            if !open {
+                return;
+            }
+            place_row(ui, &mut lt.place);
             ui.horizontal_wrapped(|ui| {
                 for p in self.lib.people.clone() {
                     let on = p.name == lt.name && p.title == lt.title;
@@ -100,9 +126,18 @@ impl App {
         ui.add_space(6.0);
         let mut tc = st.title.clone();
         let mut tc_toggle = false;
+        let open = self.section_open(RightTab::Graphics, "Title");
         theme::card_frame().show(ui, |ui| {
             ui.set_width(ui.available_width());
-            tc_toggle = block_header(ui, "Title", tc.show.visible, &mut tc.place);
+            let mut o = false;
+            tc_toggle = graphic_head(ui, open, "Title", tc.show.visible, &short(&tc.text, 60), &mut o);
+            if o {
+                opened = Some("Title");
+            }
+            if !open {
+                return;
+            }
+            place_row(ui, &mut tc.place);
             ui.add(egui::TextEdit::singleline(&mut tc.text).hint_text("Main title, e.g. Sunday Service").desired_width(f32::INFINITY));
             ui.add(egui::TextEdit::singleline(&mut tc.sub).hint_text("Small line above, e.g. Sermon series").desired_width(f32::INFINITY));
             ui.horizontal(|ui| {
@@ -125,9 +160,24 @@ impl App {
         let mut cap_toggle = false;
         let mut cap_send: Option<String> = None;
         let mut cap_clear = false;
+        let open = self.section_open(RightTab::Graphics, "Captions");
+        let script_lines = self.lib.caption_script.lines().filter(|l| !l.trim().is_empty()).count();
         theme::card_frame().show(ui, |ui| {
             ui.set_width(ui.available_width());
-            cap_toggle = block_header(ui, "Captions", cap.show.visible, &mut cap.place);
+            let summary = match cap.lines.last() {
+                Some(l) if cap.show.visible => short(l, 60),
+                _ if script_lines > 0 => format!("{script_lines} lines ready in the prepared script"),
+                _ => "Type live captions".into(),
+            };
+            let mut o = false;
+            cap_toggle = graphic_head(ui, open, "Captions", cap.show.visible, &summary, &mut o);
+            if o {
+                opened = Some("Captions");
+            }
+            if !open {
+                return;
+            }
+            place_row(ui, &mut cap.place);
             let r = ui.add(egui::TextEdit::singleline(&mut self.caption_input).hint_text("Type and press Enter to caption live").desired_width(f32::INFINITY));
             if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !self.caption_input.trim().is_empty() {
                 cap_send = Some(self.caption_input.trim().to_string());
@@ -166,9 +216,18 @@ impl App {
         ui.add_space(6.0);
         let mut tk = st.ticker.clone();
         let mut tk_toggle = false;
+        let open = self.section_open(RightTab::Graphics, "Ticker");
         theme::card_frame().show(ui, |ui| {
             ui.set_width(ui.available_width());
-            tk_toggle = block_header(ui, "Ticker", tk.show.visible, &mut tk.place);
+            let mut o = false;
+            tk_toggle = graphic_head(ui, open, "Ticker", tk.show.visible, &short(&tk.text, 60), &mut o);
+            if o {
+                opened = Some("Ticker");
+            }
+            if !open {
+                return;
+            }
+            place_row(ui, &mut tk.place);
             ui.add(egui::TextEdit::multiline(&mut tk.text).desired_rows(2).desired_width(f32::INFINITY));
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Speed").size(12.0).color(MUTED));
@@ -180,9 +239,19 @@ impl App {
         ui.add_space(6.0);
         let mut lg = st.logo.clone();
         let mut lg_toggle = false;
+        let open = self.section_open(RightTab::Graphics, "Logo & live badge");
         theme::card_frame().show(ui, |ui| {
             ui.set_width(ui.available_width());
-            lg_toggle = block_header(ui, "Logo & live badge", lg.show.visible, &mut lg.place);
+            let summary = lg.image.as_ref().map(|p| file_name(p)).unwrap_or_else(|| lg.text.clone());
+            let mut o = false;
+            lg_toggle = graphic_head(ui, open, "Logo & live badge", lg.show.visible, &summary, &mut o);
+            if o {
+                opened = Some("Logo & live badge");
+            }
+            if !open {
+                return;
+            }
+            place_row(ui, &mut lg.place);
             ui.add(egui::TextEdit::singleline(&mut lg.text).hint_text("Church name").desired_width(f32::INFINITY));
             ui.horizontal(|ui| {
                 ui.checkbox(&mut lg.live_badge, "Red LIVE badge while streaming");
@@ -201,6 +270,9 @@ impl App {
             });
         });
 
+        if let Some(name) = opened {
+            self.toggle_section(RightTab::Graphics, name);
+        }
         let changed = format!("{:?}{:?}{:?}{:?}{:?}", lt, tc, cap, tk, lg) != format!("{:?}{:?}{:?}{:?}{:?}", st.lower_third, st.title, st.caption, st.ticker, st.logo);
         if changed || lt_toggle || tc_toggle || cap_toggle || tk_toggle || lg_toggle || cap_send.is_some() || cap_clear {
             self.sh.edit(|s| {
@@ -252,113 +324,6 @@ impl App {
         }
     }
 
-    fn sound_tab(&mut self, ui: &mut egui::Ui) {
-        let meters = *self.sh.audio.meters.lock().unwrap();
-        let mut ctl = *self.sh.audio.controls.lock().unwrap();
-        let before = format!("{:?}", ctl);
-        theme::card_frame().show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Microphone").family(heading_family()).size(16.0));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let (label, fill, fg) = if ctl.mic_on { ("ON", GREEN, INK) } else { ("MUTED", RED, Color32::WHITE) };
-                    if ui.add(egui::Button::new(RichText::new(label).family(bold_family()).color(fg)).fill(fill).min_size(Vec2::new(64.0, 26.0))).clicked() {
-                        ctl.mic_on = !ctl.mic_on;
-                    }
-                });
-            });
-            hint(ui, "The church sound desk feed or a microphone. It goes to the stream and recording only, never to the room speakers.");
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Level").size(12.0).color(MUTED));
-                ui.add(egui::Slider::new(&mut ctl.mic_gain, 0.0..=3.0).show_value(false));
-            });
-            meter(ui, meters.mic, ui.available_width());
-            ui.horizontal(|ui| {
-                let st = self.sh.audio.mic_status.lock().unwrap().clone();
-                ui.label(RichText::new(st).size(12.0).color(MUTED));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if !self.mic_open && small_button(ui, "Start listening").clicked() {
-                        self.sh.audio.set_input(Some(self.settings.mic_device.clone()));
-                        self.mic_open = true;
-                    }
-                });
-            });
-            if ctl.break_mute_mic {
-                ui.label(RichText::new("Muted on the stream for the break").size(12.0).color(GOLD));
-            }
-        });
-        ui.add_space(6.0);
-        theme::card_frame().show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.label(RichText::new("Music").family(heading_family()).size(16.0));
-            let playing = self.sh.audio.is_playing("music");
-            let name = self.music_idx.and_then(|i| self.lib.playlist.get(i)).map(|p| file_name(p)).unwrap_or_else(|| "Nothing playing".into());
-            ui.label(RichText::new(if playing { format!("♪ {name}") } else { name }).size(13.0));
-            if let Some(pos) = self.sh.audio.position("music") {
-                ui.label(RichText::new(fmt_time(pos)).size(12.0).color(MUTED));
-            }
-            ui.horizontal(|ui| {
-                if small_button(ui, "⏮").clicked() {
-                    let i = self.music_idx.unwrap_or(0);
-                    let n = self.lib.playlist.len().max(1);
-                    self.play_music((i + n - 1) % n);
-                }
-                if playing {
-                    if small_button(ui, "■ Fade out").clicked() {
-                        self.sh.audio.stop("music", 2.0);
-                    }
-                } else if small_button(ui, "▶ Play").clicked() {
-                    if self.lib.playlist.is_empty() {
-                        self.toast("Add music in Media or Breaks & ads first", true);
-                    } else {
-                        self.play_music(self.music_idx.unwrap_or(0));
-                    }
-                }
-                if small_button(ui, "⏭").clicked() {
-                    let i = self.music_idx.map(|i| i + 1).unwrap_or(0);
-                    self.play_music(i);
-                }
-            });
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Volume").size(12.0).color(MUTED));
-                ui.add(egui::Slider::new(&mut ctl.music_gain, 0.0..=1.5).show_value(false));
-            });
-            meter(ui, meters.music, ui.available_width());
-            hint(ui, &format!("{} track(s) in the music list", self.lib.playlist.len()));
-        });
-        ui.add_space(6.0);
-        theme::card_frame().show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.label(RichText::new("Video sound").family(heading_family()).size(16.0));
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Volume").size(12.0).color(MUTED));
-                ui.add(egui::Slider::new(&mut ctl.media_gain, 0.0..=1.5).show_value(false));
-            });
-            meter(ui, meters.media, ui.available_width());
-        });
-        ui.add_space(6.0);
-        theme::card_frame().show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.label(RichText::new("Outputs").family(heading_family()).size(16.0));
-            ui.checkbox(&mut ctl.monitor_on, "Play music and video sound in the room");
-            let st = self.sh.audio.out_status.lock().unwrap().clone();
-            hint(ui, &st);
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Stream mix").size(12.0).color(MUTED));
-                ui.add(egui::Slider::new(&mut ctl.master, 0.0..=2.0).show_value(false));
-            });
-            meter(ui, meters.program, ui.available_width());
-        });
-        if format!("{:?}", ctl) != before {
-            let mut c = self.sh.audio.controls.lock().unwrap();
-            let bm = c.break_mute_mic;
-            *c = ctl;
-            c.break_mute_mic = bm;
-            self.settings.monitor_in_room = ctl.monitor_on;
-        }
-        ui.ctx().request_repaint_after(std::time::Duration::from_millis(60));
-    }
-
     fn look_tab_ui(&mut self, ui: &mut egui::Ui) {
         let st = self.sh.snapshot();
         let idx = if st.mirror {
@@ -377,9 +342,17 @@ impl App {
         };
         let mut look = st.outputs[idx].look.clone();
         let before = format!("{:?}", look);
+        let tab = RightTab::Look;
+        let mut opened = None;
+        let open = self.section_open(tab, "Text");
         theme::card_frame().show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new("Text").family(heading_family()).size(16.0));
+            if section_head(ui, open, "Text", None, &format!("{} · {}", look.font.name(), look.layout.name()), |_| {}) {
+                opened = Some("Text");
+            }
+            if !open {
+                return;
+            }
             ui.horizontal(|ui| {
                 egui::ComboBox::from_id_salt("font").width(140.0).selected_text(look.font.name()).show_ui(ui, |ui| {
                     for f in FontChoice::ALL {
@@ -416,9 +389,22 @@ impl App {
             });
         });
         ui.add_space(6.0);
+        let open = self.section_open(tab, "Effects");
         theme::card_frame().show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new("Effects").family(heading_family()).size(16.0));
+            let mut parts = vec![format!("Dim {:.0}%", look.dim * 100.0)];
+            if look.vignette {
+                parts.push("soft edges".into());
+            }
+            if look.slow_zoom {
+                parts.push("slow zoom".into());
+            }
+            if section_head(ui, open, "Effects", None, &parts.join(" · "), |_| {}) {
+                opened = Some("Effects");
+            }
+            if !open {
+                return;
+            }
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Dim behind text").size(12.0).color(MUTED));
                 ui.add(egui::Slider::new(&mut look.dim, 0.0..=0.8).show_value(false));
@@ -430,9 +416,15 @@ impl App {
             self.sh.edit(|s| s.outputs[idx].look = look.clone());
         }
         ui.add_space(6.0);
+        let open = self.section_open(tab, "Background");
         theme::card_frame().show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new("Background").family(heading_family()).size(16.0));
+            if section_head(ui, open, "Background", None, &st.outputs[idx].background.label(), |_| {}) {
+                opened = Some("Background");
+            }
+            if !open {
+                return;
+            }
             ui.label(RichText::new(st.outputs[idx].background.label()).size(12.5).color(MUTED));
             ui.horizontal_wrapped(|ui| {
                 for (a, b) in BG_PRESETS {
@@ -454,9 +446,16 @@ impl App {
             hint(ui, "Pictures, looping videos and cameras are in the Media tab.");
         });
         ui.add_space(6.0);
+        let open = self.section_open(tab, "Transition");
+        let current = self.transition.name();
         theme::card_frame().show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new("Transition").family(heading_family()).size(16.0));
+            if section_head(ui, open, "Transition", None, current, |_| {}) {
+                opened = Some("Transition");
+            }
+            if !open {
+                return;
+            }
             ui.horizontal_wrapped(|ui| {
                 for t in Transition::ALL {
                     if chip(ui, self.transition == t, t.name()).clicked() {
@@ -466,5 +465,8 @@ impl App {
             });
             hint(ui, "Used when slides and backgrounds change.");
         });
+        if let Some(name) = opened {
+            self.toggle_section(tab, name);
+        }
     }
 }

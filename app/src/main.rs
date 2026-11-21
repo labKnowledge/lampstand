@@ -19,6 +19,7 @@ mod ui_graphics;
 mod ui_library;
 mod ui_outputs;
 mod ui_setup;
+mod ui_sound;
 mod ui_sources;
 
 use eframe::egui;

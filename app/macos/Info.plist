@@ -9,7 +9,7 @@
     <key>CFBundleDisplayName</key>
     <string>Lampstand</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.0.3</string>
+    <string>0.0.4</string>
     <key>NSCameraUsageDescription</key>
     <string>Lampstand shows your church cameras and capture cards on the screen and live stream.</string>
     <key>NSMicrophoneUsageDescription</key>
